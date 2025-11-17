@@ -1,0 +1,11 @@
+.div-responsive{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(24rem, 2fr));
+    margin-right: 0;
+    padding-right: 0;
+    width: 100%;
+    gap: 1.5em 1em;
+    box-sizing: border-box;
+    margin-top: 40px;
+}
+

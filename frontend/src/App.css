@@ -1,0 +1,80 @@
+#root {
+  text-align: center;
+  overflow-y: auto;
+  margin: 0;
+  /* scroll-behavior: smooth; */
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+.app-container {
+  display: flex;
+  align-items: flex-start;   
+  background-color: #1B1C30;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* contenido normal */
+.main-content {
+  margin-left: 180px;   /* espacio igual al ancho del sidebar */
+  transition: margin-left 0.3s ease;
+  padding: 10px;
+  min-height: 100vh;
+  flex-grow: 1;
+  background-color: w;
+}
+
+/* cuando el sidebar está colapsado */
+.main-content.collapsed {
+  margin-left: 60px;    /* se ajusta al ancho reducido */
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+
+
+*{
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+
+}
+
+/* @font-face {
+  font-family: 'Roboto';
+  src: url('./fonts/Roboto_Condensed/RobotoCondensed-VariableFont_wght.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+} */
+
+@font-face {
+  font-family: 'Nunito';
+  src: url('./fonts/Nunito/Nunito-Italic-VariableFont_wght.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}

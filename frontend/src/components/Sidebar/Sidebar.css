@@ -1,0 +1,125 @@
+.sidebar {
+  width: 150px;
+  background-color: #26273B;
+  color: white;
+  padding: 10px;
+  height: 100vh;          /* ocupa toda la altura de la ventana */
+  position: fixed;        /* lo fija al borde izquierdo */
+  top: 0;
+  left: 0;
+  align-items: center;
+  z-index: 1001;
+  /* 👇 transición suave en ancho, padding y alineación */
+  transition: width 0.3s ease, padding 0.3s ease;
+}
+
+.sidebar.collapsed {
+  width: 30px;
+  padding-left: auto;         /* elimina el empuje lateral */
+  justify-content: center; /* centra horizontalmente */
+  text-align: center;
+  
+}
+
+
+
+
+.iconoscol{
+  /* width: calc(50px - 1.5em);  
+  height: calc(50px - 1.5em);   */
+  font-size: calc(50px - 1.2em);  
+  display: flex;
+  flex-direction: column;
+  align-items: center; 
+  
+  /* (Opcional) Añade un poco de espacio superior si es necesario */
+  padding-top: 10px;
+  margin-top: 5px; 
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+
+.toggle-icon {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center; 
+  font-size: calc(50px - 1.6em);  
+}
+
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+  text-align: center; /* centra el texto dentro del ul */
+}
+
+
+.sidebar li link{
+  margin-top: 12px;
+  /* padding-left: 10%; */
+  
+  justify-content: left;
+  text-align: center;
+  /* height: 100%;
+  width: 100%; */
+  display: flex;
+  cursor: pointer;
+  z-index: 1001;
+}
+
+
+.iconos{
+  padding-right:10px;
+  padding-left:10%;
+   margin-top: 4px;
+}
+
+
+
+
+/* título clicable para colapsar cuando el menú esté expandido */
+.sidebar-header .header-title {
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+
+
+@media (max-width: 600px) {
+  
+  /* 1. Forzamos el colapso del sidebar */
+  .sidebar {
+    width: 60px;          /* Forzamos el ancho colapsado */
+    align-items: center;  /* Forzamos el centrado de los íconos */
+  }
+
+  /* 2. Ocultamos el texto de los íconos */
+  .sidebar .menu-item-text {
+    opacity: 0;
+    pointer-events: none; /* Evita que se pueda interactuar con el texto oculto */
+    display: none;        /* O la forma más directa de ocultarlo */
+  }
+
+  /* 3. Ajustamos el contenido principal */
+  .main-content {
+    margin-left: 60px; /* Ajustamos el margen para que coincida con el sidebar colapsado */
+  }
+
+  /* (Opcional) Si tienes un botón para abrir/cerrar, puedes ocultarlo en móvil */
+  .toggle-sidebar-button {
+    display: none;
+  }
+}
+
+.sidebar-link {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

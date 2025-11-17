@@ -1,0 +1,5 @@
+.env
+.descargar_wheels.py
+.gitignore
+.git
+__pycache__

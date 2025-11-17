@@ -1,0 +1,41 @@
+
+.barra-supperior{
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 40px;
+  overflow-y: hidden;
+  background-color: #26273B;
+  color: white;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 20px;
+  z-index: 1000; /* asegura que esté encima de todo */
+  box-shadow:  0 2px 4px rgba(0, 0, 0, 0.3);
+
+
+}
+
+.sidebar-expandido {
+  left: 150px; /* ancho del sidebar expandido */
+}
+
+.sidebar-colapsado {
+  left: 30px; /* ancho del sidebar colapsado */
+}
+
+
+.date-picker{
+  color:rgb(255, 255, 255);
+  align-self: right;
+  display: flex;
+  margin-right: 20px;
+  justify-content: center;
+  overflow-y: hidden;
+  
+}
+
+.rs-picker-popup {
+  background-color: #e8e8ec !important;
+  z-index: 1002 !important;
+}

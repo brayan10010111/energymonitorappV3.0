@@ -1,0 +1,23 @@
+
+.app-container {
+  display: flex;
+  align-items: flex-start;   
+  background-color: #1B1C30;
+  width: calc(100% - 2rem);
+}
+
+
+/* contenido normal */
+.main-content {
+  margin-left: 180px;   /* espacio igual al ancho del sidebar */
+  transition: margin-left 0.3s ease;
+  padding: 10px;
+  min-height: 100vh;
+  flex-grow: 1;
+  background-color: #1B1C30;
+}
+
+/* cuando el sidebar está colapsado */
+.main-content.collapsed {
+  margin-left: 60px;    /* se ajusta al ancho reducido */
+}

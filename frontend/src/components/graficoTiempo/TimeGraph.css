@@ -1,0 +1,22 @@
+
+
+
+.timegraph {
+  background: #26273B;
+  width: calc(100% - 2rem);          /* ocupa todo el ancho disponible */
+  height: 300px;
+  margin: 0 auto;
+  min-width: none;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  /* overflow-x: auto; */
+  
+}
+canvas {
+  font-family: 'Nunito', sans-serif;
+}
+
+.graph-container {
+  padding: 1rem; /* Usa padding aquí en lugar de calc() en el hijo */
+}

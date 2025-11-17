@@ -1,0 +1,46 @@
+.equipos-page {
+  padding: 20px;
+  font-family: Arial, sans-serif;
+  width: 80%;
+
+}
+
+.add-button {
+  font-size: 20px;
+  padding: 6px 12px;
+  border: none;
+  background-color: #4eabb2;
+  color: rgb(255, 255, 255);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.add-button:hover {
+  background-color: #88bec2;
+}
+
+.equipos-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-radius: 20px solid #333; /* Borde externo */
+  border-spacing: 0 10px; /* 10px de espacio vertical entre filas */
+  width: 100%;
+}
+
+.equipos-table th,
+.equipos-table td {
+  /* border: 2px solid #340041; */
+  
+  box-shadow: 2px 2px 2px 1px rgba(104, 104, 104, 0.2);
+  padding: 8px;
+  text-align: center;
+}
+
+.equipos-table th {
+  /* background-color: #FFCA28; */
+  background-color: #FFCA28;
+}
+
+.header{
+  border-radius: 30px;
+}

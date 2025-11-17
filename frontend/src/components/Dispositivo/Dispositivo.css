@@ -1,0 +1,21 @@
+
+.equipos-table {
+  border-collapse: separate;
+  border-spacing: 0 10px; /* 10px de espacio vertical entre filas */
+  width: 100%;
+}
+
+.equipos-table td {
+  background-color: rgb(185, 185, 179);
+  padding: 8px;
+}
+
+.estado-online {
+  color: green;
+  font-weight: bold;
+}
+
+.estado-offline {
+  color: rgb(204, 0, 0);
+  font-weight: bold;
+}

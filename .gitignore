@@ -1,0 +1,20 @@
+# Entorno virtual
+.venv/
+venv/
+
+# Archivos de VS Code
+.vscode/
+
+# Archivos temporales
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+.env
+notas.txt
+descargar_wheels.py
+
+packages/
+node_modules
+.env
