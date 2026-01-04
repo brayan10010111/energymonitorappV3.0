@@ -78,6 +78,24 @@
   text-transform: uppercase;
 }
 
+.seleccion-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.5rem;
+  padding: 0 2rem;
+  margin-bottom: 0.8rem;
+}
+.contador {
+  font-weight: 500;
+}
+.btn-todos {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.9rem;
+  border-radius: 4px;
+  background-color: #007bff;
+}
+
 .estado.online, .estado.activo { background: #e8f5e9; color: #2e7d32; }
 .estado.offline, .estado.inactivo { background: #ffebee; color: #c62828; } 
 
@@ -100,7 +118,29 @@
   overflow-y: hidden;
 } */
 
-
+.lista-variables li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: white;
+  padding: 0.1rem 3rem;
+}
+.lista-variables li.seleccionado {
+  background-color: #eef6ff;
+  border-left: 3px solid #007bff;
+  color: black;
+}
+.lista-variables input[type="checkbox"] {
+  margin: 0;
+}
+.subcategoria-titulo {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1rem 1.5rem 0.1rem ;
+  padding-left: 1rem;
+  color:#340041;
+  background-color: #FFCA28;
+}
 
 @media (max-width: 599px) {
   .equipos-header {

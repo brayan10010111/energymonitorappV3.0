@@ -283,7 +283,7 @@ async def calcular_prediccion_consumo_dia(sistema: str, intervalo=60):
 
     try:
         # 1. Datos reales del día
-        datos_reales = await get_influx_data_for_air_compressor_prediction_all_day()
+        datos_reales, datos_sensores = await get_influx_data_for_air_compressor_prediction_all_day()
 
         if not datos_reales:
             return {

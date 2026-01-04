@@ -1,18 +1,9 @@
 import "./Equipos.css";
 import Dispositivo from "../../components/Dispositivo/Dispositivo";
 import ModalFormulario from "../../components/Modal/Modal";
-import { guardarEquipo } from "../../db/db";
+import { fetchEquipos, guardarEquipo } from "../../db/db";
 import { useEffect, useState } from "react";
-import axios from "axios";
-
-interface Equipo {
-  id: number;
-  nombre: string;
-  modelo: string;
-  ip: string;
-  id_modbus: number;
-  estado: string;
-}
+import type { Equipo } from "../../db/db";
 
 const Equipos = () => {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
@@ -21,24 +12,23 @@ const Equipos = () => {
   const [mostrarModal, setMostrarModal] = useState(false);
 
   useEffect(() => {
-  const fetchEquipos = async () => {
-    try {
-      const response = await axios.get("http://localhost:8000/api/equipos/");
-      // console.log("Respuesta del backend:", response.data);
-      setEquipos(Array.isArray(response.data) ? response.data : response.data.results || []);
-    } catch (error) {
-      console.error("Error al cargar equipos:", error);
-    }
-  };
+    const cargar = async () => {
+      const data = await fetchEquipos();
+      setEquipos(data as Equipo[]);
+    };
 
-  fetchEquipos();
+    cargar();
 }, []);
 
   const toggleSelectAll = () => {
     if (selectAll) {
       setSeleccionados([]);
     } else {
-      setSeleccionados(equipos.map((e) => e.id));
+      setSeleccionados(
+        equipos
+          .map((e) => e.id)
+          .filter((id): id is number => typeof id === "number")
+      );
     }
     setSelectAll(!selectAll);
   };
@@ -79,14 +69,26 @@ const Equipos = () => {
         </thead>
         <tbody>
           {Array.isArray(equipos) &&
-            equipos.map((equipo) => (
-              <Dispositivo
-                key={equipo.id}
-                equipo={equipo}
-                seleccionado={seleccionados.includes(equipo.id)}
-                onToggle={toggleEquipo}
-              />
-            ))}
+            equipos
+              .filter(
+                (equipo): equipo is Equipo & { id: number } =>
+                  typeof equipo.id === "number"
+              )
+              .map((equipo) => {
+                const equipoNormalizado = {
+                  ...equipo,
+                  estado: equipo.estado ?? "offline",
+                };
+
+                return (
+                  <Dispositivo
+                    key={equipo.id}
+                    equipo={equipoNormalizado}
+                    seleccionado={seleccionados.includes(equipo.id)}
+                    onToggle={toggleEquipo}
+                  />
+                );
+              })}
         </tbody>
       </table>
 
@@ -94,10 +96,12 @@ const Equipos = () => {
         <ModalFormulario
           onClose={() => setMostrarModal(false)}
           onSubmit={(data) => {
-            const nextId =
-              equipos.length > 0
-                ? Math.max(...equipos.map((e) => e.id)) + 1
-                : 1;
+            const ids = equipos
+              .map((e) => e.id)
+              .filter((id): id is number => typeof id === "number");
+
+            const nextId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+
             const nuevoEquipo: Equipo = {
               id: nextId,
               nombre: data.nombre,

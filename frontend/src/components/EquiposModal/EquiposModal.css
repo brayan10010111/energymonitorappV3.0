@@ -81,26 +81,10 @@
 .estado.online, .estado.activo { background: #e8f5e9; color: #2e7d32; }
 .estado.offline, .estado.inactivo { background: #ffebee; color: #c62828; } 
 
-/* Fecha */
-/* .fecha-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  
-} */
-
-/* .label-fecha {
-  font-weight: 200;
-  font-size: 1rem;
-  
-} */
-
-/* .input-fecha-wrapper {
-  position: relative;
-  overflow-y: hidden;
-} */
-
-
+.titulo-h3 {
+  margin: 0;
+  text-align: center;
+}
 
 @media (max-width: 599px) {
   .equipos-header {

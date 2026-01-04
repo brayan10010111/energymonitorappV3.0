@@ -18,6 +18,7 @@ urlpatterns = [
     path("get_data_influx/",views.get_datos),
     path("get_last_hour_initial/",views.get_last_hour_initial),
     path("graficas_update/", views.stream_graficas_update, name='graficas_update'),
+    path("graficas_update_sistemas/", views.stream_graficas_update_sistemas, name='graficas_update_sistemas'),
     path("get_query_inform/", views.get_query_inform, name='get_query_inform'),
     path("stream_predicciones/", views.stream_predicciones, name='stream_predicciones'),
     path("get_acumulados/", views.get_acumulados, name='get_acumulados'),

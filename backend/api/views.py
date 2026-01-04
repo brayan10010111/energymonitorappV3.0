@@ -5,7 +5,7 @@ from .models import Equipo, Sistema
 from rest_framework.permissions import AllowAny
 from .serializers import EquipoSerializer, SistemaSerializer
 from django.views.decorators.http import require_GET
-from api.influx_tools import consultar_influx,consultar_influx_last_hour_initial, crear_informe,sumar_acumulador, get_influx_data_last_10s_async
+from api.influx_tools import consultar_influx,consultar_influx_last_hour_initial, crear_informe, get_influx_data_last_10s_for_sistems_async,sumar_acumulador, get_influx_data_last_10s_async
 from django.http import JsonResponse
 
 class EquipoViewSet(viewsets.ModelViewSet):
@@ -102,6 +102,25 @@ async def stream_graficas_update(request):
             }
             yield f"data: {json.dumps(payload)}\n\n"
             await asyncio.sleep(INTERVALO_REFRESCO)
+
+    response = StreamingHttpResponse(async_generator(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+async def stream_graficas_update_sistemas(request):
+    sistema = request.GET.get("sistema")
+
+    async def async_generator():
+        while True:
+            datos_actualizados = await get_influx_data_last_10s_for_sistems_async(sistema)
+            payload = {
+                "tipo": "grafico_actualizado",
+                "contenido": [datos_actualizados] 
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(INTERVALO_REFRESCO*12)
 
     response = StreamingHttpResponse(async_generator(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

@@ -80,7 +80,7 @@ const toggleSubcategoria = (subcategoria: string) => {
       <div className="modal-content">
         <div className="modal-header">
           <button onClick={onClose} className="btn-cerrar">✕</button>
-          <h3 className="textos">Variables por Subcategoría</h3>
+          <h3 className="textos titulo-h3 ">Variables por Subcategoría</h3>
 
           <div className="seleccion-info">
             <span className="contador textos">
@@ -99,7 +99,6 @@ const toggleSubcategoria = (subcategoria: string) => {
         <div className="lista-subcategorias">
   {Object.entries(variablesPorSubcategoria).map(([subcategoria, vars]) => (
     <div key={subcategoria} className="subcategoria-bloque">
-      {/* Título de la subcategoría */}
       <h4 
         className="subcategoria-titulo" 
         onClick={() => toggleSubcategoria(subcategoria)}
@@ -108,7 +107,6 @@ const toggleSubcategoria = (subcategoria: string) => {
         {subcategoria} {subcategoriasAbiertas.includes(subcategoria) ? "▼" : "▶"}
       </h4>
 
-      {/* Variables ocultas/visibles */}
       {subcategoriasAbiertas.includes(subcategoria) && (
         <ul className="lista-variables">
           {vars.map((variable) => (

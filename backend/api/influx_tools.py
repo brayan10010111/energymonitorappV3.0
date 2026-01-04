@@ -566,7 +566,6 @@ def sumar_acumulador(request):
 
 def sumar_acumulador_calculo_total(sistema:str):
     try:
-        client = get_influx_client()
         sistema = sistema
 
         now = datetime.utcnow()
@@ -663,3 +662,36 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
     except Exception as e:
         logger.error("Error en get_influx_data_for_air_compressor_prediction_all_day:", e)
         return []
+    
+
+@sync_to_async
+def get_influx_data_last_10s_for_sistems_async(sistema: str):
+
+    client = get_influx_client()
+
+    query = f'''
+    from(bucket: "Acumuladores")
+        |> range(start: -10s, stop: now())
+        |> filter(fn: (r) => r._measurement == "{sistema}")
+        |> filter(fn: (r) => r._field =~ /.*_minuto$/)
+        |> map(fn: (r) => ({{ r with _value: float(v: r._value) }}))
+        |> aggregateWindow(every: 1m, fn: sum, offset: 1s)
+    '''
+    tables = client.query_api().query(query)
+
+    valores = []
+    timestamp = None
+
+    for table in tables:
+        for record in table.records:
+            valores.append(record.get_value() or 0)
+            timestamp = record.get_time().isoformat()
+
+    total_kW = sum(valores)
+
+    dato_total = {
+        "timestamp": timestamp,
+        "valor": total_kW
+    }
+
+    return dato_total

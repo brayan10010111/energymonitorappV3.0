@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   getAcumulados,
   initSSEConnectionPredictivo,
+  initSSEConnectionSistemas,
 } from "../../db/db";
 ChartJS.register(
   LineElement,
@@ -88,7 +89,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
   useEffect(() => {
     if (!sistema || !estimar) return;
 
-    console.log("Iniciando SSE para:", sistema);
+    // console.log("Iniciando SSE para:", sistema);
 
     const source = initSSEConnectionPredictivo(
       sistema,
@@ -114,6 +115,36 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
       sourceRef.current = null;
     }
   }, [estimar]);
+
+  //---------------------------------------------------
+  // EFECTO DE SSE PARA DATOS EN TIEMPO REAL-----------------------------
+  //----------------------------------------------------
+  useEffect(() => {
+      if (!sistema || !estimar) return;
+      console.log("Iniciando SSE para datos reales de:", sistema);
+      const source = initSSEConnectionSistemas(
+        sistema,
+        setDataGraphReal
+      );
+      sourceRef.current = source;
+  
+      return () => {
+        if (sourceRef.current) {
+          sourceRef.current.close();
+          sourceRef.current = null;
+          console.log("Conexión SSE cerrada.");
+        }
+      };
+    }, [sistema, estimar]);
+  
+    // Maneja el cierre si autorefresh cambia a false
+    useEffect(() => {
+      if (!estimar && sourceRef.current) {
+        console.log("Predicción detenida, cerrando SSE.");
+        sourceRef.current.close();
+        sourceRef.current = null;
+      }
+    }, [estimar]);
 
 
   const data: ChartData<"line"> = {

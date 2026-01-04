@@ -15,7 +15,7 @@ const Layout: React.FC<LayoutProps> = ({ collapsed, setCollapsed }) => {
     <div className="app-container">
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       <div className={`main-content ${collapsed ? 'collapsed' : ''}`}>
-        <Outlet />
+        <Outlet context={{ collapsed, setCollapsed }} />
       </div>
     </div>
   );

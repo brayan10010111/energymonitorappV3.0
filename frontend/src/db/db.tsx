@@ -2,6 +2,11 @@
 import axios from 'axios';
 
 
+const getApiUrl = () => {
+  return import.meta.env.VITE_API_URL || "http://localhost:8000";
+};
+
+
 function getCookie(name: string): string | undefined {
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
@@ -14,7 +19,7 @@ function getCookie(name: string): string | undefined {
 
 
 export const guardarEquipo = async (equipo:Equipo) => {
-  const API_URL = import.meta.env.VITE_API_URL;
+  const API_URL = getApiUrl();
 
   try {
     await axios.get(`${API_URL}/api/csrf/`, {
@@ -143,7 +148,7 @@ export const getInfluxData = async (
   variable: string,
   rangoFechas?: [Date, Date] 
 ) => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
 //   console.log(apiUrl);
   let url = "";
 
@@ -167,7 +172,7 @@ export const initSSEConnectionPredictivo = (
   sistema: string,
   setDataGraph: React.Dispatch<React.SetStateAction<number[]>>
 ) => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   const source = new EventSource(
     `${apiUrl}/api/stream_predicciones/?sistema=${encodeURIComponent(sistema)}`
   );
@@ -213,7 +218,7 @@ export const initSSEConnection =(
   setDataGraph: React.Dispatch<React.SetStateAction<number[]>>
 ) => {
   const MAX_DATA_POINTS = 60;
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   const source = new EventSource(
   `${apiUrl}/api/graficas_update/?medidor=${encodeURIComponent(medidor)}&variable=${encodeURIComponent(variable)}`
 );
@@ -258,7 +263,7 @@ export const initSSEConnection =(
 }
 
 export const getAcumulados = async (rangoFechas: [Date, Date] | null = null, sistema: string) => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   const url = `${apiUrl}/api/get_acumulados?inicio=${rangoFechas ? rangoFechas[0].toISOString() : ''}&fin=${rangoFechas ? rangoFechas[1].toISOString() : ''}&sistema=${sistema}`;
   const res = await fetch(url);
   return res.json();
@@ -296,8 +301,55 @@ export interface Sistema {
   descripcion: string;
 }
 
+export interface Subcategoria {
+  id: number;
+  nombre: string;
+}
+
+export type InformeFormato = "xlsx" | "csv";
+
+export type InformeResult =
+  | { kind: "json"; data: any }
+  | { kind: "file"; blob: Blob; filename: string };
+
+export const fetchInforme = async (params: {
+  nombreInforme?: string;
+  rango?: [Date, Date] | null;
+  equipos?: string[];
+  variables?: string[];
+  formato?: InformeFormato;
+}): Promise<InformeResult> => {
+  const apiUrl = getApiUrl();
+
+  const search = new URLSearchParams();
+  if (params.nombreInforme) search.append("nombreInforme", params.nombreInforme);
+  if (params.rango && params.rango.length === 2) {
+    search.append("fechaInicio", params.rango[0].toISOString());
+    search.append("fechaFin", params.rango[1].toISOString());
+  }
+  if (params.equipos && params.equipos.length > 0) {
+    search.append("equipos", params.equipos.join(","));
+  }
+  if (params.variables && params.variables.length > 0) {
+    search.append("variables", params.variables.join(","));
+  }
+  if (params.formato) search.append("formato", params.formato);
+
+  const url = `${apiUrl}/api/get_query_inform/?${search.toString()}`;
+  const res = await fetch(url, { credentials: "include" });
+
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return { kind: "json", data: await res.json() };
+  }
+
+  const blob = await res.blob();
+  const filename = `${params.nombreInforme || "informe"}.${params.formato || "xlsx"}`;
+  return { kind: "file", blob, filename };
+};
+
 export const fetchEquipos = async (): Promise<Equipo[]> => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   try {
     const response = await axios.get(`${apiUrl}/api/equipos/`);
     return Array.isArray(response.data)
@@ -310,7 +362,7 @@ export const fetchEquipos = async (): Promise<Equipo[]> => {
 };
 
 export const fetchVariables = async (): Promise<Variable[]> => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   try {
     const response = await axios.get(`${apiUrl}/api/variables/`);
     return Array.isArray(response.data)
@@ -322,8 +374,21 @@ export const fetchVariables = async (): Promise<Variable[]> => {
   }
 };
 
+export const fetchSubcategorias = async (): Promise<Subcategoria[]> => {
+  const apiUrl = getApiUrl();
+  try {
+    const response = await axios.get(`${apiUrl}/api/subcategorias/`);
+    return Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+  } catch (error) {
+    console.error("Error al cargar subcategorias:", error);
+    return [];
+  }
+};
+
 export const fetchMaquinas = async (): Promise<Maquina[]> => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   try {
     const response = await axios.get(`${apiUrl}/api/maquinas/`);
     return Array.isArray(response.data)
@@ -336,7 +401,7 @@ export const fetchMaquinas = async (): Promise<Maquina[]> => {
 };
 
 export const fetchSistemas = async (): Promise<Sistema[]> => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
   try {
     const response = await axios.get(`${apiUrl}/api/sistemas/`);
     return Array.isArray(response.data)
@@ -354,7 +419,7 @@ export const initSSEConnectionPredictivoTodoElDia = (
   sistema: string,
   setEstimado: React.Dispatch<React.SetStateAction<number>>
 ) => {
-  const apiUrl = import.meta.env.VITE_API_URL;
+  const apiUrl = getApiUrl();
 
   const source = new EventSource(
     `${apiUrl}/api/stream_predicciones_dia/?sistema=${encodeURIComponent(sistema)}`
@@ -369,6 +434,51 @@ export const initSSEConnectionPredictivoTodoElDia = (
 
         // total es un número, úsalo directamente
         setEstimado(total);
+      }
+    } catch (err) {
+      console.error("Error SSE:", err);
+    }
+  };
+
+  source.onerror = (err) => {
+    console.error("Error SSE:", err);
+  };
+
+  return source;
+};
+
+
+export const initSSEConnectionSistemas = (
+  sistema: string,
+  setDataGraph: React.Dispatch<React.SetStateAction<number[]>>
+) => {
+  const apiUrl = getApiUrl();
+
+  const source = new EventSource(
+    `${apiUrl}/api/graficas_update_sistemas/?sistema=${encodeURIComponent(sistema)}`
+  );
+
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+
+      if (payload.tipo === "grafico_actualizado") {
+        const nuevosDatos: { timestamp: string; valor: number }[] = payload.contenido;
+
+        setDataGraph((prevData) => {
+          const updated = [...prevData];
+
+          nuevosDatos.forEach((d) => {
+            const t = new Date(d.timestamp);
+
+            const minuteIndex = t.getHours() * 60 + t.getMinutes();
+
+            // Actualizar solo ese punto
+            updated[minuteIndex] = d.valor ?? 0;
+          });
+
+          return updated;
+        });
       }
     } catch (err) {
       console.error("Error SSE:", err);

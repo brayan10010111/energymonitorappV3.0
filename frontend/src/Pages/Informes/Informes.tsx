@@ -3,20 +3,25 @@ import "./Informes.css";
 import { DateRangePicker } from "rsuite";
 import "rsuite/dist/rsuite.min.css";
 import { useEffect, useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { FaCalendarAlt } from "react-icons/fa";
-import axios from "axios";
 import EquiposModal from "../../components/EquiposModal/EquiposModal";
 import VariablesModal from "../../components/VariablesModal/VariablesModal";
-import type { Equipo, Variable } from  "../../db/db";
-// interface Equipo {
-//   id: number;
-//   nombre: string;
-//   modelo: string;
-//   ip: string;
-//   estado: string;
-// }
+import {
+  fetchEquipos,
+  fetchInforme,
+  fetchSubcategorias,
+  fetchVariables,
+} from "../../db/db";
+import type { Equipo, Subcategoria, Variable } from "../../db/db";
+
+type LayoutOutletContext = {
+  collapsed: boolean;
+  setCollapsed: (value: boolean) => void;
+};
 
 const Informes = () => {
+  const { setCollapsed } = useOutletContext<LayoutOutletContext>();
   const pickerRef = useRef<any>(null);
   const [_, setChartLabels] = useState<string[]>([]);
   const [__, setDataGraph] = useState<number[]>([]);
@@ -40,107 +45,69 @@ const Informes = () => {
   const [showModalVariables, setShowModalVariables] = useState(false);
 
   const generarInforme = async () => {
-  try {
-    const params = new URLSearchParams();
+    try {
+      const result = await fetchInforme({
+        nombreInforme,
+        rango,
+        equipos: medidoresSeleccionados,
+        variables: variablesSeleccionadas,
+        formato,
+      });
 
-    if (nombreInforme) params.append("nombreInforme", nombreInforme);
+      if (result.kind === "json") {
+        const data = result.data;
 
-    if (rango && rango.length === 2) {
-      params.append("fechaInicio", rango[0].toISOString());
-      params.append("fechaFin", rango[1].toISOString());
-    }
+        if (data?.error) {
+          console.error("Error del backend:", data.error);
+          alert(`Error generando informe: ${data.error}`);
+          return;
+        }
 
-    if (medidoresSeleccionados.length > 0) {
-      params.append("equipos", medidoresSeleccionados.join(","));
-    }
+        if (data?.datos && Array.isArray(data.datos)) {
+          setChartLabels(data.datos.map((d: any) => d.timestamp));
+          setDataGraph(data.datos.map((d: any) => d.valor));
+        } else {
+          console.warn("Respuesta JSON inesperada:", data);
+          alert("El backend no devolvió datos válidos para graficar.");
+        }
 
-    if (variablesSeleccionadas.length > 0) {
-      params.append("variables", variablesSeleccionadas.join(","));
-    }
-
-    if (formato) params.append("formato", formato);
-
-    const url = `/api/get_query_inform/?${params.toString()}`;
-    const res = await fetch(url);
-
-    const contentType = res.headers.get("content-type");
-
-    if (contentType && contentType.includes("application/json")) {
-      const data = await res.json();
-
-      if (data.error) {
-        // Manejo de error JSON
-        console.error("Error del backend:", data.error);
-        alert(`Error generando informe: ${data.error}`);
         return;
       }
 
-      if (data.datos && Array.isArray(data.datos)) {
-        setChartLabels(data.datos.map((d: any) => d.timestamp));
-        setDataGraph(data.datos.map((d: any) => d.valor));
-      } else {
-        console.warn("Respuesta JSON inesperada:", data);
-        alert("El backend no devolvió datos válidos para graficar.");
-      }
-    } else {
-      // Caso archivo (CSV/XLSX): descargar
-      const blob = await res.blob();
       const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.download = `${nombreInforme || "informe"}.${formato}`;
+      link.href = window.URL.createObjectURL(result.blob);
+      link.download = result.filename;
       link.click();
+    } catch (error) {
+      console.error("Error generando informe:", error);
+      alert("Hubo un problema al generar el informe.");
     }
-  } catch (error) {
-    console.error("Error generando informe:", error);
-    alert("Hubo un problema al generar el informe.");
-  }
-};
+  };
 
   useEffect(() => {
-    const fetchEquipos = async () => {
-      try {
-        const response = await axios.get("http://localhost:8000/api/equipos/");
-        const data = Array.isArray(response.data)
-          ? response.data
-          : response.data.results || [];
-        setEquipos(data);
-      } catch (error) {
-        console.error("Error al cargar equipos:", error);
-      }
+    const cargar = async () => {
+      const data = await fetchEquipos();
+      setEquipos(data);
     };
-    fetchEquipos();
+    cargar();
   }, []);
 
    useEffect(() => {
-    const fetchEquipos = async () => {
-      try {
-        const response = await axios.get("http://localhost:8000/api/variables/");
-        const data = Array.isArray(response.data)
-          ? response.data
-          : response.data.results || [];
-        setVariables(data);
-      } catch (error) {
-        console.error("Error al cargar variables:", error);
-      }
+    const cargar = async () => {
+      const data = await fetchVariables();
+      setVariables(data);
     };
-    fetchEquipos();
+    cargar();
   }, []);
 
   let mostrar = false;
-const [subcategorias, setSubcategorias] = useState<Array<{ id: number; nombre: string; }>>([]);
-useEffect(() => {
-    const fetchEquipos = async () => {
-      try {
-        const response = await axios.get("http://localhost:8000/api/subcategorias/");
-        const data = Array.isArray(response.data)
-          ? response.data
-          : response.data.results || [];
-        setSubcategorias(data);
-      } catch (error) {
-        console.error("Error al cargar subcategorias:", error);
-      }
+  const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
+  useEffect(() => {
+    const cargar = async () => {
+      const data = await fetchSubcategorias();
+      setSubcategorias(data);
     };
-    fetchEquipos();
+    cargar();
   }, []);
   const handleClick = () => {
     mostrar = !mostrar;
@@ -268,7 +235,10 @@ useEffect(() => {
             </td>
             <td className="columna2">
               <button
-                onClick={() => setShowModalEquipos(true)}
+                onClick={() => {
+                  setCollapsed(true);
+                  setShowModalEquipos(true);
+                }}
                 className="btn-abrir-modal"
               >
                 Seleccionar equipos
@@ -295,7 +265,10 @@ useEffect(() => {
             </td>
             <td className="columna2">
               <button
-                onClick={() => setShowModalVariables(true)}
+                onClick={() => {
+                  setCollapsed(true);
+                  setShowModalVariables(true);
+                }}
                 className="btn-abrir-modal"
               >
                 Seleccionar variables

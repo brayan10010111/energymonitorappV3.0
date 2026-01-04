@@ -24,7 +24,7 @@ const EquiposModal: React.FC<EquiposModalProps> = ({
           <button onClick={onClose} className="btn-cerrar">
             ✕
           </button>
-          <h3 className="textos">Equipos / Medidores</h3>
+          <h3 className="textos titulo-h3">Equipos / Medidores</h3>
 
 
           <div className="seleccion-info">
