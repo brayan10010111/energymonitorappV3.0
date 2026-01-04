@@ -10,6 +10,7 @@ interface Equipo {
   nombre: string;
   modelo: string;
   ip: string;
+  id_modbus: number;
   estado: string;
 }
 
@@ -22,7 +23,7 @@ const Equipos = () => {
   useEffect(() => {
   const fetchEquipos = async () => {
     try {
-      const response = await axios.get("http://localhost:8000//api/equipos/");
+      const response = await axios.get("http://localhost:8000/api/equipos/");
       // console.log("Respuesta del backend:", response.data);
       setEquipos(Array.isArray(response.data) ? response.data : response.data.results || []);
     } catch (error) {
@@ -64,6 +65,7 @@ const Equipos = () => {
             <th>Nombre</th>
             <th>Modelo</th>
             <th>IP</th>
+            <th>ID Modbus</th>
             <th>Estado</th>
             <th className="header-actions">
               <button
@@ -101,9 +103,9 @@ const Equipos = () => {
               nombre: data.nombre,
               modelo: data.modelo,
               ip: data.ip,
+              id_modbus: data.idModbus,
               estado: "offline",
-            };
-            axios.post("/api/equipos", nuevoEquipo); // persistencia en backend
+            };            
             guardarEquipo(nuevoEquipo);
             setEquipos((prev) => [...prev, nuevoEquipo]);
             setMostrarModal(false);

@@ -1,14 +1,56 @@
 from rest_framework import viewsets
-from .models import Equipo
+
+from api.predicciones import calcular_prediccion_consumo_dia, prediccion_en_tiempo_real
+from .models import Equipo, Sistema
 from rest_framework.permissions import AllowAny
-from .serializers import EquipoSerializer
+from .serializers import EquipoSerializer, SistemaSerializer
 from django.views.decorators.http import require_GET
-from api.influx_tools import consultar_influx,consultar_influx_last_hour_initial
+from api.influx_tools import consultar_influx,consultar_influx_last_hour_initial, crear_informe,sumar_acumulador, get_influx_data_last_10s_async
 from django.http import JsonResponse
 
 class EquipoViewSet(viewsets.ModelViewSet):
     queryset = Equipo.objects.all()
     serializer_class = EquipoSerializer
+    permission_classes = [AllowAny]
+
+class VariableViewSet(viewsets.ModelViewSet):
+    from .models import Variable
+    from .serializers import VariableSerializer
+
+    queryset = Variable.objects.all()
+    serializer_class = VariableSerializer
+    permission_classes = [AllowAny]
+
+class SensorViewSet(viewsets.ModelViewSet):
+    from .models import Sensor
+    from .serializers import SensorSerializer
+
+    queryset = Sensor.objects.all()
+    serializer_class = SensorSerializer
+    permission_classes = [AllowAny]
+
+class SubcategoriaViewSet(viewsets.ModelViewSet):
+    from .models import Subcategoria
+    from .serializers import SubcategoriaSerializer
+
+    queryset = Subcategoria.objects.all()
+    serializer_class = SubcategoriaSerializer
+    permission_classes = [AllowAny]
+
+class MaquinaViewSet(viewsets.ModelViewSet):
+    from .models import Maquina
+    from .serializers import MaquinaSerializer
+
+    queryset = Maquina.objects.all()
+    serializer_class = MaquinaSerializer
+    permission_classes = [AllowAny]
+
+class SistemaViewSet(viewsets.ModelViewSet):
+    from .models import Sistema
+    from .serializers import SistemaSerializer
+
+    queryset = Sistema.objects.all()
+    serializer_class = SistemaSerializer
     permission_classes = [AllowAny]
 
 
@@ -21,51 +63,90 @@ def get_csrf_token(request):
     return JsonResponse({'detail': 'CSRF cookie set'})
 
 @require_GET
-def obtener_datos(request):
+def get_datos(request):
     return consultar_influx(request)
+
+@require_GET
+def get_query_inform(request):
+    return crear_informe(request)
 
 @require_GET
 def get_last_hour_initial(request):
     return consultar_influx_last_hour_initial(request)
 
+@require_GET
+def get_acumulados(request):
+    return sumar_acumulador(request)
+
+
+
+import environ
+env = environ.Env()
+environ.Env.read_env()
+INTERVALO_REFRESCO = env.int("INTERVALO_REFRESCO", default=5)
+
+from django.http import StreamingHttpResponse
+import json, asyncio
+from api.influx_tools import get_influx_data_last_10s_async
 
 async def stream_graficas_update(request):
-    """
-    Una vista que transmite actualizaciones del gráfico en tiempo real.
-    """
-    # Usamos StreamingHttpResponse para mantener la conexión abierta.
-    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
-    # Headers para SSE
-    response['Cache-Control'] = 'no-cache'
-    response['X-Accel-Buffering'] = 'no' # Desactiva el buffering en proxies como Nginx
-    return response
+    medidor = request.GET.get("medidor")
+    variable = request.GET.get("variable")
 
-import asyncio
-from django.http import StreamingHttpResponse
-import json
-from asgiref.sync import sync_to_async
-from api.influx_tools import get_influx_data_by_hour
-async def event_stream():
-        async_get_data = sync_to_async(get_influx_data_by_hour, thread_sensitive=True)
+    async def async_generator():
         while True:
-            try:
-                datos_actualizados = await async_get_data(
-                time_range="-5s", 
-                measurement="CASA", 
-                field="A-B"
-            )
-                payload = {
+            datos_actualizados = await get_influx_data_last_10s_async(medidor, variable)
+            payload = {
                 "tipo": "grafico_actualizado",
                 "contenido": datos_actualizados
             }
-            
-                message = f"data: {json.dumps(payload)}\n\n"
-                yield message.encode("utf-8")
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(INTERVALO_REFRESCO)
 
-            except Exception as e:
-                print(f"Error en el bucle de event_stream: {e}")
+    response = StreamingHttpResponse(async_generator(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
 
-            # Esperamos 5 segundos antes de la siguiente consulta
-            await asyncio.sleep(5)
+async def stream_predicciones(request):
+    sistema = request.GET.get("sistema")
+    if(sistema!="AIRE COMPRIMIDO"):
+        return JsonResponse({"error":"Sistema no soportado para predicciones"}, status=400)
+    
+    async def async_generator_aire_comprimido():
+        while True:
+            predicciones = await prediccion_en_tiempo_real(INTERVALO_REFRESCO*12)
+            payload = {
+                "tipo": "grafico_actualizado",
+                "contenido": predicciones
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(INTERVALO_REFRESCO*12)
 
+    response = StreamingHttpResponse(async_generator_aire_comprimido(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+
+async def stream_predicciones_dia(request):
+    sistema = request.GET.get("sistema")
+    if(sistema!="AIRE COMPRIMIDO"):
+        return JsonResponse({"error":"Sistema no soportado para predicciones"}, status=400)
+    
+    async def async_calcular_prediccion_consumo_dia():
+        while True:
+            predicciones = await calcular_prediccion_consumo_dia(sistema,INTERVALO_REFRESCO*12)
+            payload = {
+                "tipo": "grafico_actualizado",
+                "contenido": predicciones
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(INTERVALO_REFRESCO*12)
+
+    response = StreamingHttpResponse(async_calcular_prediccion_consumo_dia(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
 

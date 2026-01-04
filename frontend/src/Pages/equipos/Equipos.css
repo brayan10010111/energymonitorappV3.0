@@ -1,8 +1,11 @@
 .equipos-page {
-  padding: 20px;
+  padding: 30px;
   font-family: Arial, sans-serif;
-  width: 80%;
-
+  width:90%;
+  background: #26273B;
+  margin: 0 auto;
+  margin-top: 2rem;
+  border-radius: 10px;
 }
 
 .add-button {

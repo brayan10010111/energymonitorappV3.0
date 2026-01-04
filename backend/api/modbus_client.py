@@ -1,58 +1,276 @@
 import time
 import threading
-import logging
+
 import struct
-from datetime import datetime, timezone
-from pyModbusTCP.client import ModbusClient
-from django.db import connection
-from .influx_tools import registrar_medicion
-from api.opc_datos import get_equipos_desde_db
-
-logger = logging.getLogger(__name__)
-
-def read_float32(client, address):
-    regs = client.read_holding_registers(address - 1, 2)
-    if regs is None:
-        return 0.0
-    raw = struct.pack(">HH", regs[0], regs[1])
-    return struct.unpack(">f", raw)[0]
+from datetime import datetime
 from zoneinfo import ZoneInfo
-def ciclo_modbus(nombre, ip):
-    client = ModbusClient(host=ip, port=502, unit_id=1, auto_open=True)
+import requests
+# api/modbus_async.py
+import asyncio
+import struct
+
+from typing import Dict, Any, List, Tuple
+
+from pymodbus.client import AsyncModbusTcpClient
+from asgiref.sync import sync_to_async
+from django.db import close_old_connections
+
+import logging
+logger = logging.getLogger("estado_equipos")
+
+from api.influx_tools import registrar_acumulador
+
+
+import environ
+
+# Initialise environment variables
+env = environ.Env()
+environ.Env.read_env()
+INTERVALO_MODBUS_SEGUNDOS = env.int("INTERVALO_MODBUS_SEGUNDOS", default=5)
+# =============================================================================
+# LECTURA FINAL
+# =============================================================================
+def size_for_type(tipo: str) -> int:
+    if tipo == "INT64":
+        return 4
+    elif tipo == "FLOAT32":
+        return 2
+    elif tipo == "4Q_FP_PF":
+        return 1   # ocupa un solo registro de 16 bits
+    else:
+        return 1
+
+def decode_value(tipo: str, regs: list[int]):
+    try:
+        if tipo == "INT64" and len(regs) >= 4:
+            return (regs[0] << 48) | (regs[1] << 32) | (regs[2] << 16) | regs[3]
+
+        elif tipo == "FLOAT32" and len(regs) >= 2:
+            combined = (regs[0] << 16) | regs[1]
+            return struct.unpack(">f", combined.to_bytes(4, "big"))[0]
+
+        elif tipo == "4Q_FP_PF" and len(regs) >= 1:
+            code = regs[0]
+            # Si quieres ver el código crudo:
+            # return code
+            # O si prefieres mapear:
+            if code == 65472: return -1 #Error o vacio
+            elif code == 0: return 0 #PF = 0
+            elif code == 1: return 1 #Inductivo
+            elif code == 2: return 2 #Capacitivo
+            else: return f"Code {code}"
+
+        elif len(regs) >= 1:
+            return regs[0]
+
+
+        elif len(regs) >= 1:
+            return regs[0]
+
+    except Exception as e:
+        logger.debug(f"Error decodificando {tipo}: {e}")
+    return None
+
+
+
+
+
+async def leer_equipo_async(nombre: str, ip: str, id_modbus: int, variables: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Lee un equipo vía Modbus TCP asíncrono y devuelve datos como dict.
+    Agrupa variables en bloques para eficiencia.
+    """
+    datos = {var["nombre"]: None for var in variables}
+    # Convertir registros a enteros y ordenar
+    variables_sorted = sorted(variables, key=lambda v: int(v["registro"]))
+    # Agrupar en bloques
+    bloques = []
+    bloque_actual = []
+    max_gap = 20   # máximo salto permitido entre registros dentro de un bloque
+    max_block_size = 50  #  máximo tamaño de bloque
+
+    for var in variables_sorted:
+        reg = int(var["registro"])
+        if not bloque_actual:
+            bloque_actual.append(var)
+        else:
+            last_reg = int(bloque_actual[-1]["registro"])
+            if reg - last_reg <= max_gap and len(bloque_actual) < max_block_size:
+                bloque_actual.append(var)
+            else:
+                bloques.append(bloque_actual)
+                bloque_actual = [var]
+    if bloque_actual:
+        bloques.append(bloque_actual)
+
+    client = AsyncModbusTcpClient(ip, port=502, timeout=5.0, retries=1)
+    try:
+        if not await client.connect():
+            logger.warning(f"[{nombre}] Sin conexión a {ip}")
+            return {"equipo": nombre, "ip": ip, "datos": datos, "success": False}
+
+        # Leer cada bloque
+        for bloque in bloques:
+            # ajustar base-1 → base-0
+            start = int(bloque[0]["registro"]) - 1
+            end   = int(bloque[-1]["registro"]) - 1
+
+            # calcular tamaño real del bloque
+            max_reg = max(int(v["registro"]) - 1 + size_for_type(v["tipo"]) for v in bloque)
+            min_reg = min(int(v["registro"]) - 1 for v in bloque)
+            count   = (max_reg - min_reg) + 2
+
+            try:
+                result = await client.read_holding_registers(address=min_reg, count=count, device_id=id_modbus)
+                if result.isError():
+                    logger.debug(f"[{nombre}] Bloque {min_reg}-{max_reg} no disponible")
+                    continue
+
+                # Mapear variables dentro del bloque
+                for var in bloque:
+                    reg  = int(var["registro"]) - 1  # base-0
+                    tipo = var["tipo"]
+                    size = size_for_type(tipo)
+                    offset = reg - min_reg
+
+                    raw = result.registers[offset:offset+size]
+                    valor = decode_value(tipo, raw)
+
+                    datos[var["nombre"]] = valor
+
+            except Exception as e:
+                logger.debug(f"[{nombre}] Error leyendo bloque {min_reg}-{max_reg}: {e}")
+
+
+        return {"equipo": nombre, "ip": ip, "datos": datos, "success": True}
+
+    except Exception as e:
+        logger.error(f"[{nombre}] Error general: {e}")
+        return {"equipo": nombre, "ip": ip, "datos": datos, "success": False}
+    finally:
+        client.close() 
+
+# =============================================================================
+# ORM SEGURO
+# =============================================================================
+@sync_to_async
+def get_equipos_online() -> List[Tuple[str, str, int]]:
+    from api.models import Equipo
+    return list(Equipo.objects.filter(estado="Online").values_list("nombre", "ip", "id_modbus"))
+
+# @sync_to_async
+# def registrar_medicion_safe(equipo: str, datos: Dict[str, Any], timestamp: str):
+#     from api.influx_tools import registrar_medicion  
+#     registrar_medicion(equipo, datos, timestamp)
+
+@sync_to_async
+def registrar_medicion_safe(equipo: str, datos: Dict[str, Any], timestamp: str):
+    from api.influx_tools import registrar_medicion  
+    from api.influx_tools import EnergyMeterAccumulator
+    meters = {}
+
+    # Extraer la variable de consumo actual
+    consumo_actual = datos.get("Active Energy Delivered (Into Load)", 0)
+
+    # Crear acumulador si no existe
+    if equipo not in meters:
+        meters[equipo] = EnergyMeterAccumulator(equipo)
+
+    # Procesar dato con la clase
+    resultado = meters[equipo].process(consumo_actual)
+
+    #Fusionar los diccionarios: mantener todas las variables originales + las nuevas métricas
+    # datos_combinados = {**datos, **resultado} 
+
+    # Registrar en InfluxDB
+    registrar_medicion(equipo, datos, timestamp)
+    registrar_acumulador(equipo, resultado, timestamp)
+
+    return datos
+
+
+
+# =============================================================================
+# CICLO PRINCIPAL
+# =============================================================================
+async def ciclo_modbus_async_all(variables=None):
+    equipos = await get_equipos_online()
+    if not equipos:
+        logger.info("No hay equipos online")
+        return
+
+    logger.info(f"Leyendo {len(equipos)} equipos...")
+    tareas = [leer_equipo_async(n, ip, id_modbus, variables=variables) for n, ip, id_modbus in equipos]
+    resultados = await asyncio.gather(*tareas)
+    exitosos = [r for r in resultados if r["success"]]
+    logger.info(f"Modbus: {len(exitosos)}/{len(equipos)} leídos correctamente")
+    # Guardar en DB
+    await asyncio.gather(*[
+        registrar_medicion_safe(r["equipo"], r["datos"],
+            datetime.now(ZoneInfo("America/Bogota")).isoformat())
+        for r in exitosos
+    ], return_exceptions=True)
+
+    close_old_connections()
+
+
+
+def obtener_variables():
+    url = env("POSTGRES_URL") + "variables/"
+    response = requests.get(url)
+    try:
+        # Verificar que la petición fue exitosa
+        if response.status_code == 200:
+            data = response.json()   # Aquí tienes el JSON como dict/list en Python
+            return data
+        else:
+            return None
+    except Exception as e:
+        logger.error("Excepción al obtener variables:", exc_info=e)
+        logger.error("Error en respuesta HTTP: %s", response.status_code)
+
+        return None
+
+
+# =============================================================================
+# BUCLE + INICIO
+# =============================================================================
+async def modbus_async_forever(intervalo: int = INTERVALO_MODBUS_SEGUNDOS,variables=None):
+    if variables is None:
+        logger.error("Variables no proporcionadas para modbus_async_forever")
+        return
+    logger.info("MODBUS ASÍNCRONO INICIADO (UNIVERSAL 2025)")
     while True:
-        voltages = {
-            "A-B": read_float32(client, 3020),
-            "B-C": read_float32(client, 3022),
-            "C-A": read_float32(client, 3024),
-            "L-L Avg": read_float32(client, 3026),
-            "A-N": read_float32(client, 3028),
-            "B-N": read_float32(client, 3030),
-            "C-N": read_float32(client, 3032),
-            "L-N Avg": read_float32(client, 3036),
-        }
-        registrar_medicion(
-            nombre,
-            voltages,
-            datetime.now(ZoneInfo("America/Bogota")).isoformat(),
-        )
-        time.sleep(5)
-
-MAX_THREADS = 4
-semaforo = threading.Semaphore(MAX_THREADS)
+        try:
+            await ciclo_modbus_async_all(variables=variables)
+        except Exception as e:
+            logger.error(f"Error en bucle: {e}", exc_info=True)
+        await asyncio.sleep(intervalo)
 
 
+def start_modbus_async():
+    shared = {"variables": None}   #  contenedor compartido
 
-def ciclo_modbus_con_limite(nombre, ip):
-    with semaforo:
-        ciclo_modbus(nombre, ip)
+    def run_variables():
+        while True:
+            shared["variables"] = obtener_variables()
+            logger.info("Variables actualizadas")
+            time.sleep(60)  # espera 1 minuto
 
-def start_modbus_threads():
-    equipos = get_equipos_desde_db()
-    # print("Equipos obtenidos:", equipos)
-    for equipo in equipos:
-        t = threading.Thread(
-            target=ciclo_modbus_con_limite,
-            args=(equipo.nombre, equipo.ip),
-            daemon=True
-        )
-        t.start()
+    def run_modbus():
+        while True:
+            vars_actuales = shared["variables"]
+            if vars_actuales is not None:
+                asyncio.run(modbus_async_forever(intervalo=INTERVALO_MODBUS_SEGUNDOS, variables=vars_actuales))
+            else:
+                logger.warning("Variables aún no disponibles")
+                time.sleep(5)
+
+    # Lanzar hilo para Modbus
+    threading.Thread(target=run_modbus, name="Modbus-Async", daemon=True).start()
+    logger.info("Modbus ASÍNCRONO lanzado")
+
+    # Lanzar hilo para Variables
+    threading.Thread(target=run_variables, name="Variables-Reader", daemon=True).start()
+    logger.info("Lectura de variables cada 1 minuto lanzada")
+

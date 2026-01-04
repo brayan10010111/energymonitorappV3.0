@@ -54,8 +54,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => {
       <ul>
         <li><Link to="/equipos" className="sidebar-link"> {collapsed ? <MdDevices className='iconoscol' /> : <> <MdDevices className='iconos' />  Equipos </>}</Link></li>
         <li><Link to="/dashboard" className="sidebar-link">{collapsed ? <FaChartBar className='iconoscol'/> : <> <FaChartBar  className='iconos'/>  Dashboard </>}</Link></li>
-        <li><Link to="/dashboard" className="sidebar-link">{collapsed ? <FaFileAlt className='iconoscol'/> : <> <FaFileAlt  className='iconos'/>  Informes </>}</Link></li>
-        <li><Link to="/dashboard" className="sidebar-link">{collapsed ? <FaCog className='iconoscol'/> : <> <FaCog  className='iconos' />  Configuración </>}</Link></li>
+        <li><Link to="/informes" className="sidebar-link">{collapsed ? <FaFileAlt className='iconoscol'/> : <> <FaFileAlt  className='iconos'/>  Informes </>}</Link></li>
+        <li><Link to="/predictivo" className="sidebar-link">{collapsed ? <FaCog className='iconoscol'/> : <> <FaCog  className='iconos' />  Predictivo </>}</Link></li>
       </ul>
     </div>
   );

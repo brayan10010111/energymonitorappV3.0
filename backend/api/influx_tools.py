@@ -1,34 +1,166 @@
 from api.influx_config import get_influx_client
-from django.http import JsonResponse
 from django.conf import settings
+import csv
+from django.http import HttpResponse, JsonResponse
+import logging
+logger = logging.getLogger("estado_equipos")
+
 
 
 def registrar_medicion(equipo, campos_dict, timestamp, tags=None):
-    #print("Registrar medición llamada")
     client = get_influx_client()
-    #print("Estado de conexión:", client.health().status)
     write_api = client.write_api()
+
+    # Filtrar valores inválidos antes de convertir
+    clean_fields = {}
+    for k, v in campos_dict.items():
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip().lower() in ("none", "null", ""):
+            continue
+        try:
+            clean_fields[k] = float(v)
+        except (ValueError, TypeError):
+            # si no se puede convertir, lo descartamos
+            continue
+
     point = {
         "measurement": equipo,
-        "fields": {k: float(v) for k, v in campos_dict.items()},
+        "fields": clean_fields,
         "time": timestamp
     }
 
     if tags:
         point["tags"] = tags
 
-    write_api.write(bucket="Energia", record=point)
+    # Solo escribir si hay campos válidos
+    if clean_fields:
+        write_api.write(bucket="Energia", record=point)
+    else:
+        logger.info(f"[{equipo}] No hay campos válidos para registrar en Influx")
 
-import datetime
+def registrar_acumulador(
+    nombre_equipo: str,
+    valores: dict,
+    timestamp,
+    tags: dict | None = None,
+    bucket: str = "Acumuladores"
+):
+    from api.models import Equipo
+
+    client = get_influx_client()
+    write_api = client.write_api()
+
+    # Filtrar valores válidos
+    clean_fields = {}
+    for campo, valor in valores.items():
+        if valor is None:
+            continue
+
+        if isinstance(valor, str) and valor.strip().lower() in ("none", "null", ""):
+            continue
+
+        try:
+            clean_fields[campo] = float(valor)
+        except (ValueError, TypeError):
+            continue
+
+    if not clean_fields:
+        logger.info(f"[{nombre_equipo}] No hay campos válidos para registrar en Influx")
+        return
+
+    # Obtener el sistema del equipo
+    try:
+        equipo = Equipo.objects.get(nombre=nombre_equipo)
+    except Equipo.DoesNotExist:
+        logger.warning(f"[{nombre_equipo}] No existe en la base. No se registra.")
+        return
+
+    # Validar si tiene sistema
+    if equipo.sistema is None:
+        logger.warning(f"[{nombre_equipo}] No tiene sistema asociado. No se registra.")
+        return
+
+    sistema = equipo.sistema.nombre
+
+    # Construir punto Influx
+    punto = {
+        "measurement": sistema, 
+        "fields": clean_fields,
+        "time": timestamp,
+        # "tags": {
+        #     "equipo": nombre_equipo  # Tag para identificar el equipo dentro del sistema
+        # }
+    }
+
+    # Agregar tags adicionales si existen
+    if tags:
+        punto["tags"].update(tags)
+
+    write_api.write(bucket=bucket, record=punto)
+
+def registrar_sensor(
+    nombre_sensor: str,
+    valores: dict,
+    timestamp,
+    tags: dict | None = None,
+    bucket: str = "Sensores"
+):
+    """
+    Registra una medición de un sensor en InfluxDB.
+
+    Parámetros:
+        nombre_sensor (str): Nombre del sensor o equipo (measurement)
+        valores (dict): Campos a registrar {campo: valor}
+        timestamp: Fecha/hora de la medición
+        tags (dict | None): Tags opcionales
+        bucket (str): Bucket de InfluxDB (default: Sensores)
+    """
+
+    client = get_influx_client()
+    write_api = client.write_api()
+
+    # Filtrar y convertir valores válidos
+    clean_fields = {}
+
+    for campo, valor in valores.items():
+        if valor is None:
+            continue
+
+        if isinstance(valor, str) and valor.strip().lower() in ("none", "null", ""):
+            continue
+
+        try:
+            clean_fields[campo] = float(valor)
+        except (ValueError, TypeError):
+            # Valor inválido → se descarta
+            continue
+
+    # Si no hay valores válidos, no escribimos nada
+    if not clean_fields:
+        logger.info(f"[{nombre_sensor}] No hay campos válidos para registrar en Influx")
+        return
+
+    # Construir punto Influx
+    punto = {
+        "measurement": nombre_sensor,
+        "fields": clean_fields,
+        "time": timestamp
+    }
+
+    if tags:
+        punto["tags"] = tags
+
+    # Escribir en Influx
+    write_api.write(bucket=bucket, record=punto)
 
 def consultar_influx(request):
+    import datetime
     try:
         inicio = request.GET.get("inicio")
         fin = request.GET.get("fin")
         medidor = request.GET.get("medidor") 
-        campo = request.GET.get("campo") 
-        # print("Inicio:", inicio)
-        # print("Fin:", fin)
+        variable = request.GET.get("variable") 
         if not inicio or not fin:
             return JsonResponse({"error": "Faltan parámetros"}, status=400)
 
@@ -57,13 +189,12 @@ def consultar_influx(request):
         from(bucket: "Energia")
         |> range(start: {inicio}, stop: {fin})
         |> filter(fn: (r) => r._measurement == "{medidor}")
-        |> filter(fn: (r) => r._field == "A-B")
+        |> filter(fn: (r) => r._field == "{variable}")
         |> aggregateWindow(every: {group}, fn: last)
         |> filter(fn: (r) => exists r._value) 
         |> yield(name: "last")
 
         '''
-        # print(query)
         result = client.query_api().query(query)
 
         datos = []
@@ -73,80 +204,26 @@ def consultar_influx(request):
                 if valor is None:   # si viene nulo
                     valor = 0 
                 datos.append({
-                    "timestamp": record.get_time().strftime("%H:%M"),
-                    "valor": record.get_value()
+                    "timestamp": record.get_time().isoformat(),
+                    "valor": valor
                 })
+
 
         return JsonResponse({"datos": datos})
     except Exception as e:
-        print("Error en consultar_influx:", e)
+        logger.error("Error en consultar_influx:", e)
         return JsonResponse({"error": str(e)}, status=500)
 
-
-
-import asyncio
-def get_influx_data_by_hour(time_range="-5s", measurement="nombre_de_tu_medicion", field="valor"):
-    """
-    Función SÍNCRONA y reutilizable para consultar datos de InfluxDB y agruparlos por hora.
-    
-    Args:
-        time_range (str): El rango de tiempo para la consulta de InfluxDB (ej. "-5s", "-1h").
-        measurement (str): El nombre de la 'measurement' en InfluxDB.
-        field (str): El nombre del 'field' a consultar.
-
-    Returns:
-        list: Una lista de 24 elementos con la suma de los valores para cada hora.
-    """
-    # print(f"Ejecutando consulta síncrona para el rango: {time_range}")
-    client = get_influx_client()
-    query_api = client.query_api()
-
-    while True:
-
-        horas_local  = [0] * 24
-        flux_query = f'''
-            from(bucket: "Energia")
-                |> range(start: {time_range}) 
-                |> filter(fn: (r) => r._measurement == "{measurement}")
-                |> filter(fn: (r) => r._field == "A-B")
-                |> filter(fn: (r) => r["fase"] == "trifásico")
-        '''
-        try:
-            tables = query_api.query(flux_query)
-
-            # Procesar los resultados
-            for table in tables:
-                for record in table.records:
-                    valor = record.get_value()
-                    if valor is None:   # si viene nulo
-                        valor = 0 
-                    record_time = record.get_time().strftime("%H:%M")
-                    record_value = record.get_value()
-
-                    if record_time is not None and record_value is not None:
-                        # La hora se obtiene en UTC, asegúrate de que esto sea lo que esperas.
-                        # Si necesitas la hora local del servidor, deberás hacer una conversión de zona horaria.
-                        hora = record.get_time().hour 
-                        horas_local[hora] += record_value
-            
-            # print("Consulta a InfluxDB finalizada exitosamente.")
-            return horas_local
-
-        except Exception as e:
-            print(f"Error al consultar InfluxDB en services.py: {e}")
-            # Devuelve una lista vacía o relanza la excepción según tu estrategia de manejo de errores
-            return [0] * 24
-        
-
-def consultar_influx_last_hour_initial(request,measurement="nombre_de_tu_medicion"):
+def consultar_influx_last_hour_initial(request):
     try:
-
+        medidor = request.GET.get("medidor") 
+        variable =  request.Get.get("variable")
         client = get_influx_client()
         query = f'''
         from(bucket: "Energia")
         |> range(start: -1h, stop: now())
-        |> filter(fn: (r) => r._measurement == "{measurement}")
-        |> filter(fn: (r) => r._field == "A-B")
+        |> filter(fn: (r) => r._measurement == "{medidor}")
+        |> filter(fn: (r) => r._field == "{variable})
         |> keep(columns: ["_time", "_value"])
         '''
         result = client.query_api().query(query)
@@ -165,5 +242,424 @@ def consultar_influx_last_hour_initial(request,measurement="nombre_de_tu_medicio
 
         return JsonResponse({"datos": datos})
     except Exception as e:
-        print("Error en consultar_influx:", e)
+        logger.error("Error en consultar_influx:", e)
         return JsonResponse({"error": str(e)}, status=500)
+
+import csv
+import datetime
+from openpyxl import Workbook
+from dateutil import parser
+
+def crear_informe(request):
+    try:
+        inicio = request.GET.get("fechaInicio")
+        fin = request.GET.get("fechaFin")
+        medidor = request.GET.get("equipos")
+        variables = request.GET.get("variables")
+        formato = request.GET.get("formato", "csv")  # por defecto CSV
+
+        # Validar parámetros obligatorios
+        if not inicio or not fin or not medidor or not variables:
+            return JsonResponse({"error": "Faltan parámetros"}, status=400)
+
+        # Validar rango de fechas
+        try:
+            inicio_dt = parser.parse(inicio)
+            fin_dt = parser.parse(fin)
+            if inicio_dt >= fin_dt:
+                return JsonResponse({"error": "El rango de fechas es inválido"}, status=400)
+        except Exception:
+            return JsonResponse({"error": "Formato de fecha inválido"}, status=400)
+
+        # Construir filtros de equipos
+        lista = [item.strip() for item in medidor.split(",")]
+        base = 'r["_measurement"] == "'
+        equipos = " or ".join([base + item + '"' for item in lista])
+
+        # Construir filtros de variables
+        lista = [item.strip() for item in variables.split(",")]
+        base = 'r["_field"] == "'
+        variables = " or ".join([base + item + '"' for item in lista])
+
+        client = get_influx_client()
+
+        # Asegurar que las fechas estén entre comillas para Flux
+        query = f'''
+        from(bucket: "Energia")
+        |> range(start: {inicio}, stop: {fin})
+        |> filter(fn: (r) => {equipos})
+        |> filter(fn: (r) => {variables})
+        '''
+
+        result = client.query_api().query(query)
+
+        # Si no hay datos, devolver error claro
+        if not result or all(len(table.records) == 0 for table in result):
+            return JsonResponse({"error": "No hay datos en el rango seleccionado"}, status=404)
+
+        fecha = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Generar CSV
+        if formato == "csv":
+            response = HttpResponse(content_type="text/csv")
+            response["Content-Disposition"] = f'attachment; filename="informe_{fecha}.csv"'
+
+            writer = csv.writer(response)
+            writer.writerow(["Timestamp", "Medidor", "Variables", "Valor"])
+
+            for table in result:
+                for record in table.records:
+                    writer.writerow([
+                        record.get_time().isoformat(),
+                        record.get_measurement(),
+                        record.get_field(),
+                        record.get_value() if record.get_value() is not None else 0
+                    ])
+            return response
+
+        # Generar XLSX
+        elif formato == "xlsx":
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Informe"
+
+            # Cabecera
+            ws.append(["Timestamp", "Medidor", "Variables", "Valor"])
+
+            # Filas
+            for table in result:
+                for record in table.records:
+                    ws.append([
+                        record.get_time().isoformat(),
+                        record.get_measurement(),
+                        record.get_field(),
+                        record.get_value() if record.get_value() is not None else 0
+                    ])
+
+            response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            response["Content-Disposition"] = f'attachment; filename="informe_{fecha}.xlsx"'
+            wb.save(response)
+            return response
+
+        else:
+            return JsonResponse({"error": "Formato no soportado"}, status=400)
+
+    except Exception as e:
+        logger.error("Error en crear_informe:", e)
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+from asgiref.sync import sync_to_async
+@sync_to_async
+def get_influx_data_last_10s_async(medidor, variable):
+
+    client = get_influx_client()
+    query_api = client.query_api()
+    flux_query = f'''
+        from(bucket: "Energia")
+        |> range(start: -10s, stop: now())
+        |> filter(fn: (r) => r._measurement == "{medidor}")
+        |> filter(fn: (r) => r._field == "{variable}")
+        |> yield(name: "last")
+    '''
+    tables = query_api.query(flux_query)
+    datos = []
+    for table in tables:
+        for record in table.records:
+            datos.append({
+                "timestamp": record.get_time().isoformat(),
+                "valor": record.get_value() or 0
+            })
+    return datos
+
+from typing import List, Tuple
+@sync_to_async
+def get_equipos_online() -> List[Tuple[str, str, int]]:
+    from api.models import Equipo
+    return list(Equipo.objects.filter(estado="Online").values_list("nombre", "sistema"))
+
+@sync_to_async
+def get_equipos_aire_comprimido_online() -> List[str]:
+    """
+    Devuelve los nombres de los equipos online del sistema AIRE COMPRIMIDO.
+    """
+    from api.models import Equipo
+    return list(
+        Equipo.objects.filter(
+            estado="Online",
+            sistema__nombre="AIRE COMPRIMIDO"
+        ).values_list("nombre", flat=True)
+    )
+
+@sync_to_async
+def get_sensores_aire_comprimido() -> List[Tuple[str, str]]:
+    """
+    Devuelve una lista de tuplas (variable, nodo) para los sensores de aire comprimido.
+    """
+    from api.models import Sensor
+    sensores = Sensor.objects.filter(
+        sistema__nombre="AIRE COMPRIMIDO"
+    ).values_list("nombre")
+
+    return list(sensores)
+
+async def get_influx_data_for_air_compressor_prediction():
+    client = get_influx_client()
+    query_api = client.query_api()
+    sistema = "AIRE COMPRIMIDO"
+    # filtro_aire_compresor = await get_equipos_aire_comprimido_online()
+    sensores_aire_comprimido = await get_sensores_aire_comprimido()
+
+    # if not filtro_aire_compresor and not sensores_aire_comprimido:
+    #     logger.info("No hay equipos de Compresor de Aire online")
+    #     return []
+
+    sensores_list = ", ".join([f'"{nombre}"' for nombre in sensores_aire_comprimido])
+    # measurement_list = ", ".join([f'"{nombre}"' for nombre in filtro_aire_compresor])
+
+    # ============================
+    # ENERGÍA
+    # ============================
+    flux_query = f'''
+        from(bucket: "Acumuladores")
+        |> range(start: -30m, stop: now())
+        |> filter(fn: (r) => r._measurement == "{sistema}")
+        |> filter(fn: (r) => r._field =~ /.*_minuto$/)
+        |> yield(name: "last")
+    '''
+
+    tables_energia = query_api.query(flux_query)
+
+    datos_energia = []
+    for table in tables_energia:
+        for record in table.records:
+            datos_energia.append({
+                "_time": record.get_time().isoformat(),
+                "_value": record.get_value() or 0,
+                "_measurement": record.get_measurement(),
+                "_field": record.get_field()
+            })
+
+    # ============================
+    # SENSORES
+    # ============================
+    flux_query = f'''
+        from(bucket: "Sensores")
+        |> range(start: -30m, stop: now())
+        |> filter(fn: (r) => contains(value: r._measurement, set: [{sensores_list}]))
+        |> yield(name: "last")
+    '''
+
+    tables_sensores = query_api.query(flux_query)
+
+    datos_sensores = []
+    for table in tables_sensores:
+        for record in table.records:
+            datos_sensores.append({
+                "_time": record.get_time().isoformat(),
+                "_value": record.get_value() or 0,
+                "_measurement": record.get_measurement(),
+                "_field": record.get_field()
+            })
+
+    return [datos_energia, datos_sensores]
+
+from datetime import datetime
+
+class EnergyMeterAccumulator:
+    def __init__(self, name: str):
+        self.name = name
+        self.prev_total = 0
+        self.start_minute_total = 0
+        self.start_hour_total = 0
+        self.last_minute = None
+        self.last_hour = None
+        self.accum_minute_live = 0
+        self.accum_hour_live = 0
+        self.consumo_minuto = 0
+        self.consumo_hora = 0
+
+    def process(self, dato: float) -> dict:
+        ahora = datetime.now()
+        now_min = ahora.minute
+        now_hour = ahora.hour
+
+        # Validar dato
+        dato = float(dato) if dato and dato > 0 else 0
+
+        # Consumo instantáneo
+        delta = 0
+        if dato >= self.prev_total and dato > 0 and self.prev_total > 0:
+            delta = dato - self.prev_total
+        self.prev_total = dato
+
+        # Acumular
+        self.accum_minute_live += delta
+        self.accum_hour_live += delta
+
+        # Cierre de minuto
+        if self.last_minute is None:
+            self.last_minute = now_min
+        if now_min != self.last_minute:  # cambio de minuto
+            self.consumo_minuto = self.accum_minute_live
+            self.start_minute_total = dato
+            self.accum_minute_live = 0
+            self.last_minute = now_min
+
+        # Cierre de hora
+        if self.last_hour is None:
+            self.last_hour = now_hour
+        if now_hour != self.last_hour:  # cambio de hora
+            self.consumo_hora = self.accum_hour_live
+            self.start_hour_total = dato
+            self.accum_hour_live = 0
+            self.last_hour = now_hour
+
+        # Salida
+        return {
+            f"{self.name}_actual": dato,
+            f"{self.name}_consumo_segundo": delta,
+            f"{self.name}_consumo_minuto": self.consumo_minuto,
+            f"{self.name}_consumo_hora": self.consumo_hora,
+        }
+    
+
+def sumar_acumulador(request):
+    try:
+        inicio = request.GET.get("inicio")
+        fin = request.GET.get("fin")
+        sistema = request.GET.get("sistema")
+
+
+        if not inicio or not fin or not sistema:
+            return JsonResponse({"error": "Faltan parámetros"}, status=400)
+
+        client = get_influx_client()
+
+        query = f'''
+        from(bucket: "Acumuladores")
+            |> range(start: time(v: "{inicio}"), stop: time(v: "{fin}"))
+            |> filter(fn: (r) => r._measurement == "{sistema}")
+            |> filter(fn: (r) => r._field =~ /.*_minuto$/)
+            |> map(fn: (r) => ({{ r with _value: float(v: r._value) }}))
+            |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
+        '''
+
+
+        result = client.query_api().query(query)
+
+        datos = []
+        for table in result:
+            for record in table.records:
+                datos.append({
+                    "time": record.get_time().isoformat(),
+                    "value": record.get_value()
+                })
+
+        return JsonResponse({"data": datos}, safe=False)
+
+    except Exception as e:
+        logger.error("Error en sumar_acumulador:", e)
+        return JsonResponse({"error": str(e)}, status=500)
+    
+
+
+def sumar_acumulador_calculo_total(sistema:str):
+    try:
+        client = get_influx_client()
+        sistema = sistema
+
+        now = datetime.utcnow()
+        inicio = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
+        fin = now.isoformat() + "Z"
+        client = get_influx_client()
+
+        query = f'''
+        from(bucket: "Acumuladores")
+            |> range(start: time(v: "{inicio}"), stop: time(v: "{fin}"))
+            |> filter(fn: (r) => r._measurement == "{sistema}")
+            |> filter(fn: (r) => r._field =~ /.*_minuto$/)
+            |> map(fn: (r) => ({{ r with _value: float(v: r._value) }}))
+            |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
+        '''
+
+
+        result = client.query_api().query(query)
+
+        valores = []
+        for table in result:
+            for record in table.records:
+                valores.append(record.get_value())
+
+        # kW acumulados por minuto
+        total_kW = sum(valores)
+
+        # Convertir a kWh
+        total_kWh = total_kW / 60
+
+        return {
+            "total_kW": total_kW,
+            "total_kWh": total_kWh
+        }
+
+    except Exception as e:
+        logger.error("Error en sumar_acumulador:", e)
+
+
+async def get_influx_data_for_air_compressor_prediction_all_day():
+    try:
+        client = get_influx_client()
+        query_api = client.query_api()
+        sistema = "AIRE COMPRIMIDO"
+        now = datetime.utcnow()
+        inicio = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
+        fin = now.isoformat() + "Z"
+        sensores_aire_comprimido = await get_sensores_aire_comprimido()
+
+
+        sensores_list = ", ".join([f'"{nombre}"' for nombre in sensores_aire_comprimido])
+        query = f'''
+            from(bucket: "Acumuladores")
+                |> range(start: time(v: "{inicio}"), stop: time(v: "{fin}"))
+                |> filter(fn: (r) => r._measurement == "{sistema}")
+                |> filter(fn: (r) => r._field =~ /.*_minuto$/)
+                |> map(fn: (r) => ({{ r with _value: float(v: r._value) }}))
+                |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
+        '''
+
+        tables_energia = query_api.query(query)
+
+        datos_energia = []
+        for table in tables_energia:
+            for record in table.records:
+                datos_energia.append({
+                    "_time": record.get_time().isoformat(),
+                    "_value": record.get_value() or 0,
+                    "_measurement": record.get_measurement(),
+                    "_field": record.get_field()
+                })
+
+        flux_query = f'''
+            from(bucket: "Sensores")
+            |> range(start: -30m, stop: now())
+            |> filter(fn: (r) => contains(value: r._measurement, set: [{sensores_list}]))
+            |> yield(name: "last")
+        '''
+
+        tables_sensores = query_api.query(flux_query)
+
+        datos_sensores = []
+        for table in tables_sensores:
+            for record in table.records:
+                datos_sensores.append({
+                    "_time": record.get_time().isoformat(),
+                    "_value": record.get_value() or 0,
+                    "_measurement": record.get_measurement(),
+                    "_field": record.get_field()
+                })
+
+        return [datos_energia, datos_sensores]
+
+    except Exception as e:
+        logger.error("Error en get_influx_data_for_air_compressor_prediction_all_day:", e)
+        return []

@@ -1,0 +1,115 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modal-content {
+  background: #26273B;
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: 80%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  margin-top: 1rem;
+  text-align: right;
+}
+
+.btn-cerrar {
+  background: #4eabb2;
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tabla-equipos {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  background: rgb(185, 185, 179);;
+}
+
+.tabla-equipos th {
+  background: #FFCA28;
+  text-align: left;
+  padding: 0.9rem 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  font-weight: 600;
+} 
+
+.tabla-equipos td {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #eee;
+}
+
+.tabla-equipos tr:hover {
+  background: #f9f9f9;
+}
+
+.tabla-equipos tr.seleccionado {
+  background: #e3f2fd !important;
+  font-weight: 500;
+}
+
+.celda-check {
+  text-align: center;
+}
+
+.estado {
+  padding: 0.3rem 0.7rem;
+  border-radius: 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.estado.online, .estado.activo { background: #e8f5e9; color: #2e7d32; }
+.estado.offline, .estado.inactivo { background: #ffebee; color: #c62828; } 
+
+/* Fecha */
+/* .fecha-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  
+} */
+
+/* .label-fecha {
+  font-weight: 200;
+  font-size: 1rem;
+  
+} */
+
+/* .input-fecha-wrapper {
+  position: relative;
+  overflow-y: hidden;
+} */
+
+
+
+@media (max-width: 599px) {
+  .equipos-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .seleccion-info {
+    justify-content: space-between;
+  }
+}
+
+

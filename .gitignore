@@ -18,3 +18,5 @@ descargar_wheels.py
 packages/
 node_modules
 .env
+
+pruebas_scripts.ipynb

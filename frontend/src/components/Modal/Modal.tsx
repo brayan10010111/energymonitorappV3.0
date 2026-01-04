@@ -5,17 +5,18 @@ import './Modal.css'
 
 interface Props {
   onClose: () => void;
-  onSubmit: (data: { nombre: string; modelo: string; ip: string }) => void;
+  onSubmit: (data: { nombre: string; modelo: string; ip: string, idModbus: number }) => void;
 }
 
 export default function ModalFormulario({ onClose, onSubmit }: Props) {
   const [nombre, setNombre] = useState("");
   const [modelo, setModelo] = useState("");
   const [ip, setIp] = useState("");
+  const [idModbus, setIdModbus] = useState(1);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ nombre, modelo, ip });
+    onSubmit({ nombre, modelo, ip, idModbus});
     onClose();
   };
 
@@ -43,6 +44,13 @@ export default function ModalFormulario({ onClose, onSubmit }: Props) {
             placeholder="IP"
             value={ip}
             onChange={(e) => setIp(e.target.value)}
+            required
+          />
+          <input
+            type="number"
+            placeholder="ID Modbus"
+            value={idModbus}
+            onChange={(e) => setIdModbus(Number(e.target.value))}
             required
           />
           <div className="modal-actions">

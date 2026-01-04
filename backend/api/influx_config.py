@@ -1,13 +1,17 @@
 import os
 from influxdb_client import InfluxDBClient
-from dotenv import load_dotenv
 
-load_dotenv()  # Carga variables desde .env
+import environ
+
+
+
 
 def get_influx_client():
-    url = os.getenv("INFLUX_URL")
-    token = os.getenv("INFLUX_TOKEN")
-    org = os.getenv("INFLUX_ORG")
+    env = environ.Env()
+    environ.Env.read_env()
+    url = env("INFLUX_URL")
+    token = env("INFLUX_TOKEN")
+    org = env("INFLUX_ORG")
 
     if not all([url, token, org]):
         raise ValueError("Faltan variables de entorno para conectar a InfluxDB.")

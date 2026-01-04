@@ -107,7 +107,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'core.wsgi.application'
+# WSGI_APPLICATION = 'core.wsgi.application'
 ASGI_APPLICATION = 'core.asgi.application'
 
 
@@ -211,5 +211,43 @@ CORS_ALLOW_METHODS = env.list('CORS_ALLOW_METHODS_DEV')
 
 CORS_ALLOW_CREDENTIALS = True
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
 
-# curl.exe -X POST http://localhost:8000/api/equipos/ -H "Content-Type: application/json" -H "X-CSRFToken: <token_aqui>"  -b "csrftoken=<token_aqui>"   -d '{"nombre":"subestacion","modelo":"pm5000","ip":"192.168.1.10","estado":"activo"}'
+    "handlers": {
+        "estado_equipos_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": "estado_equipos.log",
+            "formatter": "simple",
+        },
+    },
+
+    "formatters": {
+        "simple": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        },
+    },
+
+    "loggers": {
+        "estado_equipos": {
+            "handlers": ["estado_equipos_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+
+        "pymodbus": {          # silencia todo pymodbus
+            "handlers": [],
+            "level": "CRITICAL",
+            "propagate": False,
+        },
+        "pymodbus.client": {   # silencia ModbusTcpClient
+            "handlers": [],
+            "level": "CRITICAL",
+            "propagate": False,
+        },
+
+    }
+}

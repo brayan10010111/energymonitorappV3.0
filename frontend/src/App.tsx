@@ -5,10 +5,12 @@
 import './App.css'
 
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Equipos from './Pages/equipos/Equipos';
 import Dashboard from './Pages/dashboard/Dashboard';
 import Layout from './Pages/layout/Layout';
+import Informes from './Pages/Informes/Informes';
+import Predictivo from './Pages/Predictivo/Predictivo';
 
 function App() {
 const [collapsed, setCollapsed] = useState(false);
@@ -16,16 +18,18 @@ const [collapsed, setCollapsed] = useState(false);
   return (
     <Router>
       <Routes>
+        {/* Ruta padre que envuelve todo con el Layout */}
         <Route
-          path="/"
           element={<Layout collapsed={collapsed} setCollapsed={setCollapsed} />}
         >
-
+          {/* Ruta por defecto: redirige o muestra el dashboard */}
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard collapsed={collapsed} />} />
           <Route path="equipos" element={<Equipos />} />
-           <Route path="dashboard" element={<Dashboard collapsed={collapsed} />} />
-
-          {/* <Route path="informes" element={<Informes />} />
-          <Route path="configuracion" element={<Configuracion />} /> */}
+          <Route path="informes" element={<Informes />} />
+          <Route path="predictivo" element={<Predictivo />} />
+          {/* Opcional: ruta 404 */}
+          <Route path="*" element={<div>Página no encontrada</div>} />
         </Route>
       </Routes>
     </Router>

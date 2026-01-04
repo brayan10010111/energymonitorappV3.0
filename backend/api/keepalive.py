@@ -1,66 +1,166 @@
-import subprocess
-import platform
 import time
-import logging
-import os
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Tuple
+from datetime import datetime, timezone
+
 import django
-from concurrent.futures import ThreadPoolExecutor
+import os
+from django.db import transaction, OperationalError
+
+# Configuración Django (descomenta cuando lo ejecutes fuera de Django)
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+django.setup()
 
 from api.opc_datos import listar_equipos_desde_db
 from .models import Equipo
+from pymodbus.client import ModbusTcpClient
+
+# ===================== CONFIGURACIÓN =====================
+INTERVALO_SEGUNDOS = 5
+MAX_THREADS = 100                  # Threads para chequeo paralelo
+MODBUS_TIMEOUT = 2                 # 2 segundos máximo por conexión Modbus
+CACHE_TIEMPO_ESTADO = {}           # Cache opcional para evitar spam en logs
+# =========================================================
+
+import logging
+logger = logging.getLogger("estado_equipos")
 
 
-# Inicializa Django
-#os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tu_proyecto.settings")
-#django.setup()
+# Pool global reutilizable (¡lo más importante!)
+executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
 
-
-# Configuración
-INTERVALO_SEGUNDOS = 2
-MAX_THREADS = 2
-
-# Logging
-logging.basicConfig(filename="estado_equipos.log", level=logging.INFO)
-
-def ping_equipo(ip):
-    sistema = platform.system().lower()
+def verificar_equipo_modbus(equipo_id: int, ip: str, id_modbus: int) -> Tuple[int, str]:
+    """
+    Verifica el estado de un equipo usando comunicación Modbus TCP.
+    Intenta leer un registro para confirmar que el dispositivo responde.
     
-    if sistema == "windows":
-        comando = ["ping", "-n", "1", "-w", "1000", ip]
-    else:
-        # Usa solo opciones compatibles sin requerir privilegios
-        comando = ["ping", "-c", "1", ip]
-
-    # print("Ejecutando:", " ".join(comando))
+    Args:
+        equipo_id: ID del equipo en la base de datos
+        ip: Dirección IP del equipo
+        id_modbus: ID Modbus del equipo (slave/unit ID)
     
+    Returns:
+        Tuple con (equipo_id, estado) donde estado es "Online", "Offline" o "Error"
+    """
+    
+    client = ModbusTcpClient(ip, port=502, timeout=MODBUS_TIMEOUT, retries=1)
     try:
-        resultado = subprocess.run(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        estado = "Online" if resultado.returncode == 0 else "Offline"
+        # Intentar conectar al dispositivo
+        if not client.connect():
+            return equipo_id, "Offline"
+        
+        # Intentar leer un registro (dirección 0, 1 registro) con el ID Modbus específico
+        # Esto confirmará que el dispositivo con ese ID está respondiendo
+        result = client.read_holding_registers(address=0, count=1, device_id=id_modbus)
+        
+        if result.isError():
+            # El dispositivo respondió pero hubo un error (posiblemente registro inválido)
+            # Intentamos con otro método: leer coils
+            result = client.read_coils(address=0, count=1, device_id=id_modbus)
+            
+            if result.isError():
+                # Si ambos fallan, consideramos offline
+                estado = "Offline"
+            else:
+                # Si al menos uno funciona, está online
+                estado = "Online"
+        else:
+            # Lectura exitosa
+            estado = "Online"
+            
     except Exception as e:
-        # print("Error al ejecutar ping:", e)
+        logging.debug(f"Error verificando equipo {equipo_id} (IP: {ip}, Modbus ID: {id_modbus}): {e}")
         estado = "Error"
+    finally:
+        try:
+            client.close() 
+        except:
+            pass
+    
+    return equipo_id, estado
 
 
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    logging.info(f"{timestamp} | {ip} | {estado}")
+@transaction.atomic
+def actualizar_estados_en_db(resultados: List[Tuple[int, str]]):
+    """Actualiza estados usando el ID del equipo (no por IP)."""
+    equipo_ids = [equipo_id for equipo_id, _ in resultados]
+    existentes = Equipo.objects.filter(id__in=equipo_ids).in_bulk()  # {id: objeto}
 
-    # Actualiza o crea registro en PostgreSQL vía Django ORM
-    Equipo.objects.update_or_create(
-        ip=ip,
-        defaults={"estado": estado}
+    a_actualizar = []
+    for equipo_id, estado in resultados:
+        equipo = existentes.get(equipo_id)
+        if not equipo:
+            continue
+
+        if equipo.estado != estado:
+            equipo.estado = estado
+            equipo.ultima_actualizacion = datetime.now()
+            a_actualizar.append(equipo)
+
+    if a_actualizar:
+        Equipo.objects.bulk_update(a_actualizar, ['estado', 'ultima_actualizacion'])
+
+    logging.info(f"DB actualizada: {len(a_actualizar)} equipos modificados")
+
+
+def escanear_y_actualizar(equipos: List[Equipo]):
+    """Chequeo paralelo por Modbus (IP + id_modbus) + actualización masiva en DB."""
+    if not equipos:
+        return
+
+    inicio = time.time()
+    actualizaciones: List[Tuple[int, str]] = []
+
+    futures = {
+        executor.submit(verificar_equipo_modbus, eq.id, eq.ip, eq.id_modbus): eq
+        for eq in equipos
+        if eq.ip
+    }
+
+    for future in as_completed(futures, timeout=len(futures) * 0.5 + 10):
+        equipo = futures[future]
+        equipo_id, estado = future.result()
+        actualizaciones.append((equipo_id, estado))
+
+        cache_key = f"{equipo.ip}:{equipo.id_modbus}"
+        if CACHE_TIEMPO_ESTADO.get(cache_key) != estado:
+            # logging.info(f"{equipo.nombre} ({equipo.ip}:{equipo.id_modbus}) | {estado}")
+            CACHE_TIEMPO_ESTADO[cache_key] = estado
+
+    try:
+        actualizar_estados_en_db(actualizaciones)
+    except OperationalError:
+        time.sleep(1)
+        actualizar_estados_en_db(actualizaciones)
+
+    vivos = sum(1 for _, estado in actualizaciones if estado == "Online")
+    logger.info(
+        f"[{time.strftime('%H:%M:%S')}] Verificados {len(futures)} equipos Modbus | "
+        f"{vivos} Online | {time.time() - inicio:.2f}s"
     )
 
-    return ip, estado
 
-def escanear_equipos(equipos):
-    ips = [equipo.ip for equipo in equipos]  # extrae las IPs
-    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-        resultados = list(executor.map(ping_equipo, ips))
-    # print("Estado actual:", resultados)
-
-
-def equipos_alive(equipos):
+def monitoreo_continuo():
+    """Bucle principal optimizado (estado por Modbus, no por IP)."""
+    logger.info("Iniciando monitoreo de equipos Modbus cada %s segundos...", INTERVALO_SEGUNDOS)
+    
     while True:
-        equipo = equipos
-        escanear_equipos(equipo)
-        time.sleep(INTERVALO_SEGUNDOS)
+        try:
+            equipos = listar_equipos_desde_db()  # Refresca la lista cada vez
+            if equipos:
+                escanear_y_actualizar(list(equipos))
+            else:
+                logger.info("No hay equipos configurados en la DB")
+
+            # Sleep preciso (compensa tiempo de ejecución)
+            time.sleep(max(0.1, INTERVALO_SEGUNDOS - 0.5))
+
+        except KeyboardInterrupt:
+            logger.info("Deteniendo monitoreo...")
+            break
+        except Exception as e:
+            logger.error(f"Error en bucle principal: {e}")
+            time.sleep(5)
+
+

@@ -1,6 +1,13 @@
 import "./TimeGraph.css";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Line } from "react-chartjs-2";
+import {
+  getInfluxData,
+  procesarDatos,
+  initSSEConnection,
+  fetchEquipos,
+  fetchVariables,
+} from "../../db/db";
 
 // Importaciones de VALORES
 import {
@@ -13,15 +20,14 @@ import {
   Tooltip,
   Legend,
   Filler,
+  Chart,
 } from "chart.js";
-import axios from "axios";
 
 // Importaciones de TIPOS
 import type { ChartOptions, Plugin, ChartData } from "chart.js";
-// import type { ChartOptions, Chart, Plugin, Point, ChartData } from "chart.js";
 
 import zoomPlugin from "chartjs-plugin-zoom";
-
+import type { Equipo, Variable } from "../../db/db";
 // Registrar componentes
 ChartJS.register(
   LineElement,
@@ -41,105 +47,141 @@ declare module "chart.js" {
     cursor?: { x: number };
   }
 }
-interface Equipo {
-  id: number;
-  nombre: string;
-  modelo: string;
-  ip: string;
-  estado: string;
-}
 
-// Props del componente
 interface TimeGraphProps {
   rangoFechas: [Date, Date] | null;
+  autorefresh: boolean;
 }
-const MAX_DATA_POINTS = 60;
-const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas }) => {
+
+// Componente principal
+const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   const [dataGraph, setDataGraph] = useState<number[]>(Array(24).fill(0));
+  const ahora = new Date();
+
   const [chartLabels, setChartLabels] = useState<string[]>(
-    Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"))
+    Array.from({ length: 60 }, (_, i) => {
+      const t = new Date(ahora.getTime() - (59 - i) * 60000);
+      return t.toLocaleTimeString("es-CO", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      });
+    })
   );
 
-  // const [, setChartData] = useState<number[]>([]);
-  // const [, setIsLoading] = useState(true);
+  const [variables, setVariables] = useState<Variable[]>([]);
+  const [equipoSeleccionado, setEquipoSeleccionado] = useState<string>("");
+  const [equipos, setEquipos] = useState<Equipo[]>([]);
+  const [variablesSeleccionadas, setVariablesSeleccionadas] =
+    useState<string>("");
+
+  //SELECTOR DE equipoSeleccionadoES-----------------------------
+
   useEffect(() => {
-    if (!rangoFechas) {
-      // Caso inicial → última hora
-      fetch("/api/get_last_hour_initial/")
-        .then((res) => res.json())
-        .then((initialData) => {
-          setChartLabels(initialData.datos.map((d: any) => d.timestamp));
-          setDataGraph(initialData.datos.map((d: any) => d.valor));
-        });
-    } else {
-      const [inicio, fin] = rangoFechas;
-      fetch(
-        `/api/get_data_influx?inicio=${inicio.toISOString()}&fin=${fin.toISOString()}`
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          setChartLabels(data.datos.map((d: any) => d.timestamp));
-          setDataGraph(data.datos.map((d: any) => d.valor));
-        });
+    const cargarEquipos = async () => {
+      const data = await fetchEquipos();
+      setEquipos(data);
+    };
+    const cargarVariables = async () => {
+      const data = await fetchVariables();
+      setVariables(data);
+    };
+    cargarEquipos();
+    cargarVariables();
+  }, []);
+
+  //---------------------------------------------------
+  // Efecto de carga de datos
+  useEffect(() => {
+    if (variables.length > 0) {
+      if (variablesSeleccionadas == "") {
+        setVariablesSeleccionadas(variables[1].nombre);
+      }
     }
-  }, [rangoFechas]);
-
-  useEffect(() => {
-    // Activar SSE solo en modo tiempo real
-    if (rangoFechas !== null) return;
-
-    const source = new EventSource("/api/graficas_update");
-
-    source.onmessage = (event) => {
+    if (equipos.length > 0) {
+      if (equipoSeleccionado == "") {
+        setEquipoSeleccionado(equipos[0].nombre);
+      }
+    }
+    if (!equipos || equipos.length === 0 || equipoSeleccionado === "") return;
+    const fetchData = async () => {
       try {
-        const payload = JSON.parse(event.data);
-
-        // Escuchamos el nuevo tipo de evento
-        if (payload.tipo === "grafico_punto_actualizado") {
-          const newPoint: { label: string; value: number } = payload.contenido;
-
-          // Lógica de la "Ventana Deslizante"
-          setChartLabels((prevLabels) => {
-            // Añade la nueva etiqueta al final y elimina la más antigua del principio
-            const newLabels = [...prevLabels, newPoint.label];
-            return newLabels.slice(-MAX_DATA_POINTS); // Mantiene el array con 60 elementos como máximo
-          });
-
-          setDataGraph((prevData) => {
-            // Añade el nuevo valor y elimina el más antiguo
-            const newData = [...prevData, newPoint.value];
-            return newData.slice(-MAX_DATA_POINTS);
-          });
-        }
-      } catch (err) {
-        console.error("Error SSE:", err);
+        const data = await getInfluxData(
+          equipoSeleccionado,
+          variablesSeleccionadas,
+          rangoFechas || undefined
+        );
+        const { labels, valores } = procesarDatos(
+          data.datos,
+          rangoFechas || null
+        );
+        setChartLabels([...labels]);
+        setDataGraph([...valores]);
+      } catch (error) {
+        console.error("Error consultando Influx:", error);
       }
     };
 
-    source.onerror = (err) => {
-      console.error("Error SSE:", err);
-      source.close();
-    };
+    fetchData();
+  }, [equipos, rangoFechas, equipoSeleccionado, variablesSeleccionadas]);
+
+  //---------------------------------------------------
+  // EFECTO DE SSE PARA DATOS EN TIEMPO REAL-----------------------------
+  // Maneja la conexión SSE
+  const sourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    if (!equipoSeleccionado || !variablesSeleccionadas || !autorefresh) return;
+
+    console.log(
+      "Iniciando conexión SSE para equipoSeleccionado:",
+      equipoSeleccionado
+    );
+    const source = initSSEConnection(
+      equipoSeleccionado,
+      variablesSeleccionadas,
+      setChartLabels,
+      setDataGraph
+    );
+    sourceRef.current = source;
 
     return () => {
-      source.close();
-      console.log("Conexión SSE cerrada.");
+      if (sourceRef.current) {
+        sourceRef.current.close();
+        sourceRef.current = null;
+        console.log("Conexión SSE cerrada.");
+      }
     };
-  }, [rangoFechas]);
+  }, [equipoSeleccionado, variablesSeleccionadas, autorefresh]);
 
-  // --- INICIO DE LA CORRECCIÓN ---
-  // El objeto 'data' DEBE estar completamente definido aquí.
-  // Utiliza el estado 'dataGraph' para poblar los datos del dataset.
+  // Maneja el cierre si autorefresh cambia a false
+  useEffect(() => {
+    if (!autorefresh && sourceRef.current) {
+      console.log("Autorefresh desactivado, cerrando conexión.");
+      sourceRef.current.close();
+      sourceRef.current = null;
+    }
+  }, [autorefresh]);
+
+  //---------------------------------------------------
+
+  //CONFIGURACION DEL GRAFICO-----------------------------
+
+  //DEFINICION DE DATOS Y ESTILOS DEL GRAFICO-----------------------------
   const data: ChartData<"line"> = {
     labels: chartLabels,
     datasets: [
       {
-        label: "Consumo A",
-        data: dataGraph, // Usando el estado aquí
+        label: equipoSeleccionado,
+        data: dataGraph,
         borderColor: "rgba(255, 247, 99, 0.7)",
         backgroundColor: "rgba(255, 247, 99, 0.3)",
         pointBackgroundColor: "rgba(255, 247, 99, 1)",
-        pointRadius: 2,
+
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 2,
+
         fill: true,
         tension: 0.4,
         spanGaps: false,
@@ -147,16 +189,22 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas }) => {
       },
     ],
   };
-
+  //DEFINICION DE OPCIONES DEL GRAFICO-----------------------------
   const options: ChartOptions<"line"> = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: "top" as const },
+      legend: {
+        position: "top" as const,
+        labels: {
+          color: "#ffffff",
+        },
+      },
       title: {
         display: true,
-        text: "Consumo de energía por hora",
-        font: { family: "Roboto", size: 16 },
+        text: "Consumo de energía en el tiempo",
+        font: { family: "Roboto", size: 18 },
+        color: "#ffffffff",
       },
       zoom: {
         pan: { enabled: true, mode: "x" },
@@ -173,22 +221,27 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas }) => {
         title: {
           display: true,
           text: rangoFechas ? "Fecha y Hora" : "Última Hora (minutos)",
+          color: "#ffffffff",
+        },
+        ticks: {
+          color: "#d4d4d4ff",
+          font: { family: "Roboto", size: 12 },
         },
       },
       y: {
-        title: { display: true, text: "kWh" },
+        title: { display: true, text: "kWh", color: "#ffffffff" },
         beginAtZero: true,
         suggestedMin: 0,
         suggestedMax: Math.max(...dataGraph),
+
+        ticks: {
+          color: "#d4d4d4ff",
+          font: { family: "Roboto", size: 14 },
+        },
       },
     },
-    // Es recomendable desactivar las animaciones para un gráfico en tiempo real fluido
-    // animation: {
-    //   duration: 250, // Una animación sutil
-    // },
   };
-  // --- FIN DE LA CORRECCIÓN ---
-
+  //DEFINICION PLUGIN CURSOR PERSONALIZADO-----------------------------
   const cursorPlugin: Plugin<"line"> = {
     id: "cursor",
     afterEvent: (chart, args) => {
@@ -267,40 +320,43 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas }) => {
       }
     },
   };
-  // console.log("Labels:", chartLabels);
-  // console.log("Data:", dataGraph);
+  //---------------------------------------------------
 
-  const [medidor, setMedidor] = useState<string>("");
-  const [equipos, setEquipos] = useState<Equipo[]>([]);
-  useEffect(() => {
-    const fetchEquipos = async () => {
-      try {
-        const response = await axios.get("http://localhost:8000//api/equipos/");
-        // console.log("Respuesta del backend:", response.data);
-        setEquipos(
-          Array.isArray(response.data)
-            ? response.data
-            : response.data.results || []
-        );
-      } catch (error) {
-        console.error("Error al cargar equipos:", error);
-      }
-    };
+  Chart.defaults.devicePixelRatio = window.devicePixelRatio || 1;
 
-    fetchEquipos();
-  }, []);
   return (
     <div className="timegraph">
-      <div >
-        <select  className="selector" value={medidor} onChange={(e) => setMedidor(e.target.value)}>
+      <div className="selector-container">
+        <select
+          className="selector"
+          value={equipoSeleccionado}
+          onChange={(e) => setEquipoSeleccionado(e.target.value)}
+        >
           {equipos.map((m) => (
             <option key={m.id} value={m.nombre}>
               {m.nombre}
             </option>
           ))}
         </select>
+        <select
+          className="selector"
+          value={variablesSeleccionadas}
+          onChange={(e) => setVariablesSeleccionadas(e.target.value)}
+        >
+          {variables.map((m) => (
+            <option key={m.id} value={m.nombre}>
+              {m.nombre}
+            </option>
+          ))}
+        </select>
       </div>
-      <Line data={data} options={options} plugins={[cursorPlugin]} />
+      {/* <a>{variablesSeleccionadas}</a> */}
+      <Line
+        className="grafico-estilo"
+        data={data}
+        options={options}
+        plugins={[cursorPlugin]}
+      />
     </div>
   );
 };

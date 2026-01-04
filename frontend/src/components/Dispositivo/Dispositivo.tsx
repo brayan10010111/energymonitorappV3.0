@@ -5,6 +5,7 @@ interface Equipo {
   nombre: string;
   modelo: string;
   ip: string;
+  id_modbus: number;
   estado: string;
 }
 
@@ -27,6 +28,7 @@ const Dispositivo: React.FC<DispositivoProps> = ({ equipo, seleccionado, onToggl
       <td>{equipo.nombre}</td>
       <td>{equipo.modelo}</td>
       <td>{equipo.ip}</td>
+      <td>{equipo.id_modbus}</td>
       <td className={equipo.estado === "Online" ? "estado-online" : "estado-offline"}>
         {equipo.estado}
       </td>

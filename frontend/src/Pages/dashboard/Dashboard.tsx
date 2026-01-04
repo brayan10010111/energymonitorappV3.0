@@ -10,22 +10,21 @@ type DashboardProps = {
   collapsed: boolean;
 };
 
-
-
 const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   // const desdeInicial = setMinutes(setHours(hoy, 0), 0); // 00:00
   // const hastaInicial = setMinutes(setHours(hoy, 23), 59); // 23:59\
   const [mostrarDatepicker, setmostrarDatepicker] = useState(true);
-  let mostrar = false
+  let mostrar = false;
   const [rango, setRango] = useState<[Date, Date] | null>(null);
   const [_, setIsManual] = useState(false);
   const pickerRef = useRef<any>(null);
-  
+
+  const [checked, setChecked] = useState(false);
 
   const ahora = new Date();
   const handleClick = () => {
-    mostrar = !mostrar
-    if(mostrar){
+    mostrar = !mostrar;
+    if (mostrar) {
       if (pickerRef.current) {
         pickerRef.current.open(); // abre el popup del picker
       }
@@ -121,7 +120,9 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   };
   // const [sidebarColapsado, setSidebarColapsado] = useState(false);
 
-
+  const handleSwitchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setChecked(event.target.checked);
+  };
 
   return (
     <div className="app-container">
@@ -130,6 +131,18 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
           collapsed ? "sidebar-colapsado" : "sidebar-expandido"
         }`}
       >
+        <div className="toggle-container">
+          <p>autorefresh</p>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={handleSwitchChange}
+            />
+            <span className="slider" />
+          </label>
+        </div>
+
         <div className="date-picker">
           <button
             onClick={handleClick}
@@ -138,7 +151,7 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
               cursor: "pointer",
             }}
           >
-            <FaCalendarAlt  size={21} />
+            <FaCalendarAlt size={21} />
           </button>
 
           {mostrarDatepicker ? (
@@ -152,9 +165,9 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
               placement="bottomEnd"
               style={{
                 right: 0,
-                marginTop:10,
-                marginRight:20, 
-                zIndex:9999,
+                marginTop: 10,
+                marginRight: 20,
+                zIndex: 9999,
                 position: "absolute",
                 visibility: "hidden", // ← oculta sin romper funcionalidad
                 pointerEvents: "none", // ← evita clics accidentales
@@ -173,9 +186,9 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
               placement="bottomEnd"
               style={{
                 right: 0,
-                marginTop:10,
-                marginRight:20,
-                
+                marginTop: 10,
+                marginRight: 20,
+
                 position: "absolute",
                 visibility: "hidden", // ← oculta sin romper funcionalidad
                 pointerEvents: "none", // ← evita clics accidentales
@@ -185,11 +198,10 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
         </div>
       </div>
       <Grid>
-      
-        <TimeGraph  rangoFechas={rango}/>
-        <TimeGraph  rangoFechas={rango}/>
-        <TimeGraph  rangoFechas={rango}/>
-        <TimeGraph  rangoFechas={rango}/>
+        <TimeGraph rangoFechas={rango} autorefresh={checked} />
+        <TimeGraph rangoFechas={rango} autorefresh={checked}/>
+        <TimeGraph rangoFechas={rango} autorefresh={checked}/>
+        <TimeGraph rangoFechas={rango} autorefresh={checked}/>
       </Grid>
     </div>
   );

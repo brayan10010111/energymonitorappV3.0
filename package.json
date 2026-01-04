@@ -1,8 +1,6 @@
 {
   "dependencies": {
-    "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.5",
-    "@mui/material": "^7.3.5",
     "@types/chart.js": "^4.0.1",
     "@types/pg": "^8.15.6",
     "@types/styled-components": "^5.1.35",

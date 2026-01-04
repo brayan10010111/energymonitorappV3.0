@@ -1,25 +1,68 @@
 import threading
 import time
 
+from django.db import close_old_connections
+
+import logging
+logger = logging.getLogger("estado_equipos")
+
+
 def iniciar_monitoreo_diferido():
-    def delayed_start():
-        time.sleep(2)  # Espera a que Django esté completamente listo
+    def worker():
+        logger.info("Iniciando hilo de monitoreo en segundo plano...")
+        time.sleep(3)  # Espera a que Django termine de inicializarse
+
+        # Importamos aquí DENTRO del hilo para evitar problemas de inicialización
         try:
-            from api.modbus_client import start_modbus_threads
-            from api.keepalive import equipos_alive
-            from api.opc_datos import listar_equipos_desde_db
-
-            # print("Iniciando monitoreo...")
-            start_modbus_threads()
-            equipos = listar_equipos_desde_db()
-            if equipos:
-                # print("Equipos detectados, iniciando keepalive...")
-                equipos_alive(equipos)
-            else:
-                print("No hay equipos online.")
+            from api.modbus_client import start_modbus_async
+            from api.keepalive import monitoreo_continuo
+            from api.opc_datos import start_opc_async
+            logger.info("Módulos importados correctamente en el hilo")
         except Exception as e:
-            import traceback
-            print(f"Error en monitoreo diferido: {e}")
-            traceback.print_exc()
+            logger.error(f"Error importando módulos en hilo: {e}")
+            return
 
-    threading.Thread(target=delayed_start, daemon=True).start()
+        # Iniciamos Modbus una sola vez
+        try:
+            start_modbus_async()
+            logger.info("Modbus threads iniciados")
+        except Exception as e:
+            logger.error(f"Error iniciando Modbus: {e}")
+
+        try:
+            start_opc_async()
+            logger.info("OPC threads iniciados")
+        except Exception as e:
+            logger.error(f"Error iniciando OPC: {e}")
+
+        # Bucle principal: reintenta cada 60s si falla
+        while True:
+            try:
+                logger.info("Iniciando ciclo de monitoreo_continuo()...")
+                
+                # ¡IMPORTANTE! Cerramos conexiones viejas antes de usar ORM en hilo largo
+                close_old_connections()
+                
+                monitoreo_continuo()  # Esta función YA tiene su propio while True con sleep
+                
+                # Si llegas aquí → monitoreo_continuo() terminó (raro, solo si lo modificaste)
+                logger.warning("monitoreo_continuo() terminó inesperadamente. Reiniciando en 10s...")
+                time.sleep(10)
+
+            except Exception as e:
+                logger.error(f"Error crítico en monitoreo continuo: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                # No mueras nunca: reintenta cada minuto
+                logger.info("Reintentando monitoreo en 60 segundos...")
+                time.sleep(60)
+
+            finally:
+                close_old_connections()  # Siempre cerrar conexiones
+
+    # Hilo daemon + nombre para debug
+    thread = threading.Thread(target=worker, name="Monitoreo-KeepAlive", daemon=True)
+    thread.start()
+    logger.info("Hilo de monitoreo iniciado correctamente (daemon)")
+    return thread
