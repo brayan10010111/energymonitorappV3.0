@@ -6,10 +6,11 @@ import { DateRangePicker } from "rsuite";
 import { addDays, addHours, addMinutes, setHours, setMinutes } from "date-fns";
 import { FaCalendarAlt } from "react-icons/fa";
 import "rsuite/dist/rsuite.min.css";
-
 type DashboardProps = {
   collapsed: boolean;
 };
+
+
 
 const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   // const desdeInicial = setMinutes(setHours(hoy, 0), 0); // 00:00
@@ -120,6 +121,8 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   };
   // const [sidebarColapsado, setSidebarColapsado] = useState(false);
 
+
+
   return (
     <div className="app-container">
       <div
@@ -181,8 +184,8 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
           )}
         </div>
       </div>
-
       <Grid>
+      
         <TimeGraph  rangoFechas={rango}/>
         <TimeGraph  rangoFechas={rango}/>
         <TimeGraph  rangoFechas={rango}/>

@@ -16,9 +16,8 @@ def read_float32(client, address):
         return 0.0
     raw = struct.pack(">HH", regs[0], regs[1])
     return struct.unpack(">f", raw)[0]
-
+from zoneinfo import ZoneInfo
 def ciclo_modbus(nombre, ip):
-    print('ENtra aca 2')
     client = ModbusClient(host=ip, port=502, unit_id=1, auto_open=True)
     while True:
         voltages = {
@@ -34,8 +33,7 @@ def ciclo_modbus(nombre, ip):
         registrar_medicion(
             nombre,
             voltages,
-            datetime.now(timezone.utc).isoformat(),
-            tags={"fase": "trifásico"}
+            datetime.now(ZoneInfo("America/Bogota")).isoformat(),
         )
         time.sleep(5)
 
@@ -50,8 +48,7 @@ def ciclo_modbus_con_limite(nombre, ip):
 
 def start_modbus_threads():
     equipos = get_equipos_desde_db()
-    print('ENtra aca')
-    print("Equipos obtenidos:", equipos)
+    # print("Equipos obtenidos:", equipos)
     for equipo in equipos:
         t = threading.Thread(
             target=ciclo_modbus_con_limite,

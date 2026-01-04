@@ -18,3 +18,4 @@ argon2-cffi-bindings
 mysqlclient
 psycopg[binary]
 django-environ
+uvicorn

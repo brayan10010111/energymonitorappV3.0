@@ -3,14 +3,14 @@
 
 .timegraph {
   background: #26273B;
-  width: calc(100% - 2rem);          /* ocupa todo el ancho disponible */
+  width: calc(100% - 2rem);
   height: 300px;
   margin: 0 auto;
   min-width: none;
-  padding: 10px;
+  padding: 20px;
   border-radius: 8px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-  /* overflow-x: auto; */
+  overflow-y: hidden;
   
 }
 canvas {
@@ -19,4 +19,38 @@ canvas {
 
 .graph-container {
   padding: 1rem; /* Usa padding aquí en lugar de calc() en el hijo */
+}
+
+.selector {
+  width: 150px;
+  padding: 3px 1px;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  background-color: #f9f9f9;
+  font-size: 14px;
+  color: #333;
+  outline: none;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+ left: 0;
+ display: flex;
+}
+
+/* Al pasar el mouse */
+.selector :hover {
+  border-color: #999;
+  background-color: #fff;
+}
+
+/* Al estar enfocado */
+.selector :focus {
+  border-color: #0078d7; /* azul estilo Microsoft */
+  box-shadow: 0 0 4px rgba(0, 120, 215, 0.4);
+  background-color: #fff;
+}
+
+/* Opciones internas */
+.selector  option {
+  padding: 6px;
+  font-size: 14px;
 }

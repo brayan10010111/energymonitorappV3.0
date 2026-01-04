@@ -55,6 +55,7 @@ THIRD_PARTY_APPS = [
     'rest_framework.authtoken',
     'ckeditor',
     'ckeditor_uploader',
+    'channels'
 ]
 
 INSTALLED_APPS = PROJECT_APPS + THIRD_PARTY_APPS + DJANGO_APPS
@@ -107,6 +108,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+ASGI_APPLICATION = 'core.asgi.application'
 
 
 # Database

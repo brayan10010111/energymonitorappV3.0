@@ -9,11 +9,11 @@ def iniciar_monitoreo_diferido():
             from api.keepalive import equipos_alive
             from api.opc_datos import listar_equipos_desde_db
 
-            print("Iniciando monitoreo...")
+            # print("Iniciando monitoreo...")
             start_modbus_threads()
             equipos = listar_equipos_desde_db()
             if equipos:
-                print("Equipos detectados, iniciando keepalive...")
+                # print("Equipos detectados, iniciando keepalive...")
                 equipos_alive(equipos)
             else:
                 print("No hay equipos online.")
