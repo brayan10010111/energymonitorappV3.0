@@ -1,3 +1,13 @@
+"""Keepalive/monitoreo de equipos Modbus.
+
+Este módulo mantiene actualizado el campo `estado` de los equipos en la DB:
+- Verifica conectividad Modbus TCP contra (IP, id_modbus).
+- Ejecuta chequeos en paralelo con `ThreadPoolExecutor`.
+- Aplica cambios en lote usando `bulk_update` para eficiencia.
+
+Usualmente se ejecuta como tarea de background (ver `api.signals`).
+"""
+
 import time
 
 from concurrent.futures import ThreadPoolExecutor, as_completed

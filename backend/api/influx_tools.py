@@ -1,3 +1,19 @@
+"""Utilidades para InfluxDB (lectura/escritura y agregaciones).
+
+Este módulo concentra la interacción con InfluxDB:
+- Escritura de mediciones de energía (`Energia`), acumuladores (`Acumuladores`) y sensores (`Sensores`).
+- Consultas para gráficas (rangos y ventanas de agregación).
+- Generación de informes (CSV/XLSX).
+- Helpers async para SSE (últimos N segundos).
+- Helpers para el pipeline de predicción (energía + sensores).
+
+Se usa desde:
+- `api.views` (endpoints HTTP/SSE)
+- `api.modbus_client` (registro de mediciones)
+- `api.opc_datos` (registro de sensores)
+- `api.predicciones` (dataset para modelo)
+"""
+
 from api.influx_config import get_influx_client
 from django.conf import settings
 import csv
@@ -8,6 +24,10 @@ logger = logging.getLogger("estado_equipos")
 
 
 def registrar_medicion(equipo, campos_dict, timestamp, tags=None):
+    """Registra una medición en el bucket `Energia`.
+
+    Filtra valores inválidos y escribe solo si hay al menos un campo numérico válido.
+    """
     client = get_influx_client()
     write_api = client.write_api()
 
@@ -46,6 +66,13 @@ def registrar_acumulador(
     tags: dict | None = None,
     bucket: str = "Acumuladores"
 ):
+    """Registra métricas derivadas (acumuladores) en InfluxDB.
+
+    - Obtiene el `Sistema` del equipo desde la DB.
+    - Escribe en el bucket `Acumuladores` usando `measurement = sistema`.
+
+    Si el equipo no existe o no tiene sistema asociado, no registra.
+    """
     from api.models import Equipo
 
     client = get_influx_client()
@@ -155,6 +182,16 @@ def registrar_sensor(
     write_api.write(bucket=bucket, record=punto)
 
 def consultar_influx(request):
+    """Consulta serie temporal desde el bucket `Energia`.
+
+    Espera query params:
+    - `inicio` (ISO)
+    - `fin` (ISO)
+    - `medidor` (measurement)
+    - `variable` (field)
+
+    Ajusta automáticamente el `aggregateWindow` para normalizar el número de puntos.
+    """
     import datetime
     try:
         inicio = request.GET.get("inicio")
@@ -215,6 +252,10 @@ def consultar_influx(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 def consultar_influx_last_hour_initial(request):
+    """Consulta de precarga: últimos 60 puntos de la última hora.
+
+    Se usa típicamente para llenar una gráfica al abrirla.
+    """
     try:
         medidor = request.GET.get("medidor") 
         variable =  request.Get.get("variable")
@@ -251,6 +292,14 @@ from openpyxl import Workbook
 from dateutil import parser
 
 def crear_informe(request):
+    """Genera un informe (CSV/XLSX) consultando el bucket `Energia`.
+
+    Query params esperados:
+    - `fechaInicio`, `fechaFin` (ISO)
+    - `equipos` (csv)
+    - `variables` (csv)
+    - `formato` (csv|xlsx)
+    """
     try:
         inicio = request.GET.get("fechaInicio")
         fin = request.GET.get("fechaFin")
@@ -352,6 +401,10 @@ def crear_informe(request):
 from asgiref.sync import sync_to_async
 @sync_to_async
 def get_influx_data_last_10s_async(medidor, variable):
+    """Devuelve puntos de los últimos 10s para un `medidor` y `variable`.
+
+    Está decorada con `sync_to_async` para poder usarse en endpoints SSE async.
+    """
 
     client = get_influx_client()
     query_api = client.query_api()
@@ -375,6 +428,10 @@ def get_influx_data_last_10s_async(medidor, variable):
 from typing import List, Tuple
 @sync_to_async
 def get_equipos_online() -> List[Tuple[str, str, int]]:
+    """Devuelve lista de equipos online con (nombre, sistema).
+
+    Nota: se usa en flujos de predicción/agrupación.
+    """
     from api.models import Equipo
     return list(Equipo.objects.filter(estado="Online").values_list("nombre", "sistema"))
 
@@ -404,6 +461,7 @@ def get_sensores_aire_comprimido() -> List[Tuple[str, str]]:
     return list(sensores)
 
 async def get_influx_data_for_air_compressor_prediction():
+    """Obtiene dataset (energía + sensores) para predicción en una ventana de 30 minutos."""
     client = get_influx_client()
     query_api = client.query_api()
     sistema = "AIRE COMPRIMIDO"
@@ -467,6 +525,15 @@ async def get_influx_data_for_air_compressor_prediction():
 from datetime import datetime
 
 class EnergyMeterAccumulator:
+    """Acumulador por equipo basado en un contador total monotónico.
+
+    A partir del valor total (energía entregada acumulada), calcula:
+    - consumo por segundo (delta)
+    - consumo por minuto (al cambiar el minuto)
+    - consumo por hora (al cambiar la hora)
+
+    Se usa desde `api.modbus_client.registrar_medicion_safe()`.
+    """
     def __init__(self, name: str):
         self.name = name
         self.prev_total = 0
@@ -480,6 +547,7 @@ class EnergyMeterAccumulator:
         self.consumo_hora = 0
 
     def process(self, dato: float) -> dict:
+        """Procesa un nuevo valor total y devuelve métricas derivadas."""
         ahora = datetime.now()
         now_min = ahora.minute
         now_hour = ahora.hour
@@ -525,6 +593,7 @@ class EnergyMeterAccumulator:
     
 
 def sumar_acumulador(request):
+    """Consulta el bucket `Acumuladores` y devuelve sumatoria por minuto para un sistema."""
     try:
         inicio = request.GET.get("inicio")
         fin = request.GET.get("fin")
@@ -565,6 +634,7 @@ def sumar_acumulador(request):
 
 
 def sumar_acumulador_calculo_total(sistema:str):
+    """Calcula el total (kW y kWh) acumulado del día actual para un sistema."""
     try:
         sistema = sistema
 
@@ -606,6 +676,7 @@ def sumar_acumulador_calculo_total(sistema:str):
 
 
 async def get_influx_data_for_air_compressor_prediction_all_day():
+    """Obtiene dataset (energía + sensores) desde 00:00 hasta ahora para predicción diaria."""
     try:
         client = get_influx_client()
         query_api = client.query_api()
@@ -666,6 +737,10 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
 
 @sync_to_async
 def get_influx_data_last_10s_for_sistems_async(sistema: str):
+    """Devuelve el acumulado agregado de un sistema en los últimos 10s.
+
+    Retorna un dict con forma `{timestamp, valor}` listo para SSE.
+    """
 
     client = get_influx_client()
 

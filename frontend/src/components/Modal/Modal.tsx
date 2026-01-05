@@ -2,18 +2,32 @@
 import { useState } from "react";
 import './Modal.css'
 
-
+/**
+ * Props del modal de creación de equipo.
+ * - `onClose`: cierra el modal.
+ * - `onSubmit`: entrega los datos del formulario al componente padre.
+ */
 interface Props {
   onClose: () => void;
   onSubmit: (data: { nombre: string; modelo: string; ip: string, idModbus: number }) => void;
 }
 
+/**
+ * ModalFormulario.
+ *
+ * Maneja un formulario controlado para crear un nuevo equipo.
+ * Al enviar:
+ * - previene submit por defecto,
+ * - llama `onSubmit` con los datos,
+ * - cierra el modal.
+ */
 export default function ModalFormulario({ onClose, onSubmit }: Props) {
   const [nombre, setNombre] = useState("");
   const [modelo, setModelo] = useState("");
   const [ip, setIp] = useState("");
   const [idModbus, setIdModbus] = useState(1);
 
+  /** Maneja envío del formulario y delega datos al padre. */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit({ nombre, modelo, ip, idModbus});

@@ -2,7 +2,13 @@ import { useState} from 'react'
 import React from 'react'
 import './VariablesModal.css';
 
-
+/**
+ * Props del modal de selección de variables.
+ *
+ * - `variables` y `subcategorias` se usan para agrupar y renderizar.
+ * - `variablesSeleccionadas` vive en el padre.
+ * - `toggleVariable` y `toggleTodasVariables` actualizan la selección en el padre.
+ */
 interface VariablesModalProps {
   variables: Array<{ id: number; nombre: string; unidad: string; registro: string; tipo: string; subcategoria: number }>;
   variablesSeleccionadas: string[];
@@ -12,30 +18,12 @@ interface VariablesModalProps {
   onClose: () => void;
 }
 
-
-
-
-// const agruparPorSubcategoria = (
-//   variables: Array<{ id: string; nombre: string; subcategoria: string }>,
-//   subcategorias: Array<{ id: string; nombre: string }>
-// ) => {
-//   return variables.reduce((acc, variable) => {
-//     // Buscar el nombre real de la subcategoría
-//     const subcat = subcategorias.find((s) => s.id === variable.subcategoria);
-
-//     // Si no se encuentra, usar el id como fallback
-//     const subcatNombre = subcat ? subcat.nombre : variable.subcategoria;
-
-//     if (!acc[subcatNombre]) {
-//       acc[subcatNombre] = [];
-//     }
-//     acc[subcatNombre].push(variable);
-
-//     return acc;
-//   }, {} as Record<string, Array<{ id: string; nombre: string; subcategoria: string }>>);
-// };
-
-
+/**
+ * Agrupa el listado de variables por nombre de subcategoría.
+ *
+ * Si no encuentra subcategoría para una variable, genera un fallback
+ * `Subcategoria {id}`.
+ */
 const agruparPorSubcategoria = (
   variables: Array<{ id: number; nombre: string; unidad: string; registro: string; tipo: string; subcategoria: number }>,
   subcategorias: Array<{ id: number; nombre: string }>
@@ -56,7 +44,11 @@ const agruparPorSubcategoria = (
   }, {} as Record<string, Array<{ id: number; nombre: string; unidad: string; registro: string; tipo: string; subcategoria: number }>>);
 };
 
-
+/**
+ * Modal para seleccionar variables, agrupadas por subcategoría.
+ *
+ * Incluye expansión/colapso por subcategoría y selección múltiple.
+ */
 const VariablesModal: React.FC<VariablesModalProps> = ({
   variables,
   variablesSeleccionadas,
@@ -68,6 +60,7 @@ const VariablesModal: React.FC<VariablesModalProps> = ({
   const variablesPorSubcategoria = agruparPorSubcategoria(variables,subcategorias);
 const [subcategoriasAbiertas, setSubcategoriasAbiertas] = useState<string[]>([]);
 
+/** Alterna expansión/colapso de una subcategoría en el modal. */
 const toggleSubcategoria = (subcategoria: string) => {
   setSubcategoriasAbiertas((prev) =>
     prev.includes(subcategoria)

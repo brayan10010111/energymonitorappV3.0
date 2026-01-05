@@ -1,3 +1,15 @@
+"""Vistas/handlers HTTP de la API.
+
+Este módulo mezcla:
+- CRUD REST usando `ModelViewSet` (DRF).
+- Endpoints GET de consulta (Influx, informes).
+- Endpoints SSE (Server-Sent Events) para actualización de gráficas en tiempo real.
+
+Notas:
+- Los endpoints SSE usan `StreamingHttpResponse` y generadores async que emiten eventos
+    con el formato `data: <json>\n\n`.
+"""
+
 from rest_framework import viewsets
 
 from api.predicciones import calcular_prediccion_consumo_dia, prediccion_en_tiempo_real
@@ -9,11 +21,13 @@ from api.influx_tools import consultar_influx,consultar_influx_last_hour_initial
 from django.http import JsonResponse
 
 class EquipoViewSet(viewsets.ModelViewSet):
+    """CRUD REST para el modelo `Equipo`."""
     queryset = Equipo.objects.all()
     serializer_class = EquipoSerializer
     permission_classes = [AllowAny]
 
 class VariableViewSet(viewsets.ModelViewSet):
+    """CRUD REST para el modelo `Variable`."""
     from .models import Variable
     from .serializers import VariableSerializer
 
@@ -22,6 +36,7 @@ class VariableViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
 class SensorViewSet(viewsets.ModelViewSet):
+    """CRUD REST para el modelo `Sensor`."""
     from .models import Sensor
     from .serializers import SensorSerializer
 
@@ -30,6 +45,7 @@ class SensorViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
 class SubcategoriaViewSet(viewsets.ModelViewSet):
+    """CRUD REST para el modelo `Subcategoria`."""
     from .models import Subcategoria
     from .serializers import SubcategoriaSerializer
 
@@ -38,6 +54,7 @@ class SubcategoriaViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
 class MaquinaViewSet(viewsets.ModelViewSet):
+    """CRUD REST para el modelo `Maquina`."""
     from .models import Maquina
     from .serializers import MaquinaSerializer
 
@@ -46,6 +63,7 @@ class MaquinaViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
 class SistemaViewSet(viewsets.ModelViewSet):
+    """CRUD REST para el modelo `Sistema`."""
     from .models import Sistema
     from .serializers import SistemaSerializer
 
@@ -60,22 +78,30 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 @ensure_csrf_cookie
 def get_csrf_token(request):
+    """Fuerza a Django a setear la cookie `csrftoken`.
+
+    Se usa desde el frontend antes de POSTs que requieren CSRF.
+    """
     return JsonResponse({'detail': 'CSRF cookie set'})
 
 @require_GET
 def get_datos(request):
+    """Proxy HTTP hacia consulta de InfluxDB (`consultar_influx`)."""
     return consultar_influx(request)
 
 @require_GET
 def get_query_inform(request):
+    """Genera un informe (csv/xlsx) a partir de datos en InfluxDB."""
     return crear_informe(request)
 
 @require_GET
 def get_last_hour_initial(request):
+    """Consulta inicial de datos (última hora), útil para precargar una gráfica."""
     return consultar_influx_last_hour_initial(request)
 
 @require_GET
 def get_acumulados(request):
+    """Devuelve acumulados (bucket de acumuladores) en un rango para un sistema."""
     return sumar_acumulador(request)
 
 
@@ -90,6 +116,12 @@ import json, asyncio
 from api.influx_tools import get_influx_data_last_10s_async
 
 async def stream_graficas_update(request):
+    """SSE: emite puntos nuevos para una gráfica por medidor/variable.
+
+    Query params esperados:
+    - `medidor`: measurement en Influx
+    - `variable`: field en Influx
+    """
     medidor = request.GET.get("medidor")
     variable = request.GET.get("variable")
 
@@ -110,6 +142,11 @@ async def stream_graficas_update(request):
 
 
 async def stream_graficas_update_sistemas(request):
+    """SSE: emite el último acumulado agregado de un sistema.
+
+    Query params:
+    - `sistema`: nombre del sistema
+    """
     sistema = request.GET.get("sistema")
 
     async def async_generator():
@@ -128,6 +165,10 @@ async def stream_graficas_update_sistemas(request):
     return response
 
 async def stream_predicciones(request):
+    """SSE: emite predicciones de corto plazo.
+
+    Actualmente solo soporta `sistema == "AIRE COMPRIMIDO"`.
+    """
     sistema = request.GET.get("sistema")
     if(sistema!="AIRE COMPRIMIDO"):
         return JsonResponse({"error":"Sistema no soportado para predicciones"}, status=400)
@@ -150,6 +191,10 @@ async def stream_predicciones(request):
 
 
 async def stream_predicciones_dia(request):
+    """SSE: emite el total estimado del día (real + predicción restante).
+
+    Actualmente solo soporta `sistema == "AIRE COMPRIMIDO"`.
+    """
     sistema = request.GET.get("sistema")
     if(sistema!="AIRE COMPRIMIDO"):
         return JsonResponse({"error":"Sistema no soportado para predicciones"}, status=400)

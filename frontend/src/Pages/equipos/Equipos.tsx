@@ -5,6 +5,13 @@ import { fetchEquipos, guardarEquipo } from "../../db/db";
 import { useEffect, useState } from "react";
 import type { Equipo } from "../../db/db";
 
+/**
+ * Vista de administración/listado de equipos.
+ *
+ * - Carga equipos desde el backend.
+ * - Permite seleccionar uno o varios (checkbox por fila y select-all).
+ * - Abre un modal para crear un equipo y lo envía al backend.
+ */
 const Equipos = () => {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [seleccionados, setSeleccionados] = useState<number[]>([]);
@@ -12,6 +19,7 @@ const Equipos = () => {
   const [mostrarModal, setMostrarModal] = useState(false);
 
   useEffect(() => {
+    /** Carga inicial de equipos al montar la vista. */
     const cargar = async () => {
       const data = await fetchEquipos();
       setEquipos(data as Equipo[]);
@@ -20,6 +28,7 @@ const Equipos = () => {
     cargar();
 }, []);
 
+  /** Alterna selección de todos los equipos listados. */
   const toggleSelectAll = () => {
     if (selectAll) {
       setSeleccionados([]);
@@ -33,6 +42,7 @@ const Equipos = () => {
     setSelectAll(!selectAll);
   };
 
+  /** Alterna la selección de un equipo por id. */
   const toggleEquipo = (id: number) => {
     setSeleccionados((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
@@ -96,6 +106,12 @@ const Equipos = () => {
         <ModalFormulario
           onClose={() => setMostrarModal(false)}
           onSubmit={(data) => {
+            /**
+             * Crea el objeto `Equipo` localmente y lo envía al backend.
+             *
+             * Nota: aquí se calcula un id incremental en el frontend para
+             * mantener la UI consistente; el backend también podría asignar id.
+             */
             const ids = equipos
               .map((e) => e.id)
               .filter((id): id is number => typeof id === "number");
@@ -110,6 +126,7 @@ const Equipos = () => {
               id_modbus: data.idModbus,
               estado: "offline",
             };            
+            // Envía la creación al backend (no bloqueante para la UI).
             guardarEquipo(nuevoEquipo);
             setEquipos((prev) => [...prev, nuevoEquipo]);
             setMostrarModal(false);

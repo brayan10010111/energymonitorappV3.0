@@ -3,12 +3,22 @@ import "./Predictivo.css";
 import GraficoPredictivo from "../../components/graficoPredictivo/graficoPredictivo";
 import { fetchSistemas,  initSSEConnectionPredictivoTodoElDia,  type Sistema } from "../../db/db";
 
-
+/**
+ * Vista de predicción.
+ *
+ * - Permite seleccionar un sistema.
+ * - Al iniciar predicción, abre SSE para recibir `total_estimado_kWh` del día.
+ * - Renderiza `GraficoPredictivo` para ver consumo real vs estimado.
+ */
 const Predictivo: React.FC = () => {
   const [estimar, setEstimar] = useState(false);
   const [sistemaSeleccionado, setSistemaSeleccionado] = useState<string>("");
   const [sistemas, setSistemas] = useState<Sistema[]>([]);
   const [estimado, setEstimado] = useState<number>(0);
+
+  /**
+   * Valida que exista sistema seleccionado y habilita el modo predicción.
+   */
   const Predecir = () => {
     if (!sistemaSeleccionado) {
       alert("Selecciona un sistema primero");
@@ -18,6 +28,7 @@ const Predictivo: React.FC = () => {
   };
 
   useEffect(() => {
+    /** Carga inicial de sistemas disponibles. */
     const cargarSistemas = async () => {
       const data = await fetchSistemas();
       setSistemas(data);
@@ -29,20 +40,20 @@ const Predictivo: React.FC = () => {
   useEffect(() => {
       if (!sistemaSeleccionado || !estimar) return;
   
-      console.log("Iniciando SSE para:", sistemaSeleccionado);
+      // console.log("Iniciando SSE para:", sistemaSeleccionado);
   
       const source = initSSEConnectionPredictivoTodoElDia(
         sistemaSeleccionado,
         setEstimado
       );
-      console.log("IsetEstimado:", estimado);
+      // console.log("IsetEstimado:", estimado);
       sourceRef.current = source;
   
       return () => {
         if (sourceRef.current) {
           sourceRef.current.close();
           sourceRef.current = null;
-          console.log("Conexión SSE cerrada.");
+          // console.log("Conexión SSE cerrada.");
         }
       };
     }, [sistemaSeleccionado, estimar]);

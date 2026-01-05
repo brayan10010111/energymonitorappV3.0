@@ -1,11 +1,22 @@
+"""Lectura de variables desde OPC UA y registro en InfluxDB.
+
+Este módulo:
+- Obtiene el catálogo de sensores desde la API (`/sensores/`).
+- Lee valores OPC UA (sin bloquear el event loop, usando `asyncio.to_thread`).
+- Registra valores en InfluxDB (bucket de sensores).
+- Corre en background (threads) mediante `start_opc_async()`.
+"""
+
 
 
 
 def listar_equipos_desde_db():
+    """Devuelve todos los equipos (ORM) desde la base de datos."""
     from api.models import Equipo
     return Equipo.objects.all()
 
 def get_equipos_desde_db():
+    """Devuelve equipos cuyo estado actual es Online."""
     return listar_equipos_desde_db().filter(estado="Online") 
 
 import asyncio
@@ -79,6 +90,7 @@ async def leer_opcua_variables_async(
 from datetime import datetime
 from zoneinfo import ZoneInfo
 async def registrar_sensores_aire_influxdb(nombre: str, nodo: str):
+    """Lee un nodo OPC UA y registra el valor como medición de sensor en InfluxDB."""
     from api.influx_tools import registrar_sensor
 
     valores = await leer_opcua_variables_async(
@@ -96,6 +108,7 @@ async def registrar_sensores_aire_influxdb(nombre: str, nodo: str):
 
 
 async def opc_async_forever(intervalo: int = INTERVALO_OPC_SEGUNDOS, variables=None):
+    """Bucle infinito: lee sensores y los registra en Influx cada `intervalo` segundos."""
     if not variables:
         logger.error("Variables no proporcionadas para opc_async_forever")
         return
@@ -114,6 +127,7 @@ async def opc_async_forever(intervalo: int = INTERVALO_OPC_SEGUNDOS, variables=N
         await asyncio.sleep(intervalo)
 
 def obtener_variables():
+    """Consulta al backend el catálogo de sensores y lo normaliza a dict `{nombre: nodo}`."""
     url = env("POSTGRES_URL") + "sensores/"
     response = requests.get(url)
 
@@ -136,6 +150,11 @@ def obtener_variables():
 import threading
 import time
 def start_opc_async():
+    """Arranca hilos daemon:
+
+    - Un hilo refresca el catálogo de sensores cada 60s.
+    - Otro hilo ejecuta el loop OPC (asyncio) con el catálogo actual.
+    """
     shared = {"sensores": None}   #  contenedor compartido
 
     def run_sensores():

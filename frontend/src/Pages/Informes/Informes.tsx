@@ -20,9 +20,23 @@ type LayoutOutletContext = {
   setCollapsed: (value: boolean) => void;
 };
 
+/**
+ * Vista de generación de informes.
+ *
+ * Permite configurar:
+ * - nombre del informe
+ * - rango de fechas
+ * - equipos (medidores)
+ * - variables (agrupadas por subcategoría)
+ * - formato (xlsx/csv)
+ *
+ * Luego invoca `fetchInforme()` para descargar archivo o manejar respuesta JSON.
+ */
 const Informes = () => {
   const { setCollapsed } = useOutletContext<LayoutOutletContext>();
   const pickerRef = useRef<any>(null);
+
+  // Estados reservados por si el backend devuelve JSON graficable.
   const [_, setChartLabels] = useState<string[]>([]);
   const [__, setDataGraph] = useState<number[]>([]);
   // Estado para el rango de fechas
@@ -44,6 +58,11 @@ const Informes = () => {
   const [showModalEquipos, setShowModalEquipos] = useState(false);
   const [showModalVariables, setShowModalVariables] = useState(false);
 
+  /**
+   * Construye y solicita el informe al backend.
+   * - Si la respuesta es JSON: puede traer error o datos para graficar.
+   * - Si la respuesta es archivo: dispara descarga usando un enlace temporal.
+   */
   const generarInforme = async () => {
     try {
       const result = await fetchInforme({
@@ -85,6 +104,7 @@ const Informes = () => {
   };
 
   useEffect(() => {
+    /** Carga inicial de equipos disponibles. */
     const cargar = async () => {
       const data = await fetchEquipos();
       setEquipos(data);
@@ -93,6 +113,7 @@ const Informes = () => {
   }, []);
 
    useEffect(() => {
+    /** Carga inicial de variables disponibles. */
     const cargar = async () => {
       const data = await fetchVariables();
       setVariables(data);
@@ -103,12 +124,15 @@ const Informes = () => {
   let mostrar = false;
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
   useEffect(() => {
+    /** Carga inicial de subcategorías (para agrupar variables en el modal). */
     const cargar = async () => {
       const data = await fetchSubcategorias();
       setSubcategorias(data);
     };
     cargar();
   }, []);
+
+  /** Abre el popup del DateRangePicker (se muestra/oculta vía ref). */
   const handleClick = () => {
     mostrar = !mostrar;
     if (mostrar) {
@@ -118,6 +142,7 @@ const Informes = () => {
     }
   };
 
+  /** Agrega o quita un equipo (medidor) del arreglo de seleccionados. */
   const toggleMedidor = (nombre: string) => {
     setMedidoresSeleccionados((prev) =>
       prev.includes(nombre)
@@ -126,6 +151,7 @@ const Informes = () => {
     );
   };
   // Seleccionar / Deseleccionar todos
+  /** Alterna selección de todos los equipos disponibles. */
   const toggleTodos = () => {
     if (medidoresSeleccionados.length === equipos.length) {
       setMedidoresSeleccionados([]);
@@ -136,6 +162,8 @@ const Informes = () => {
   const [variablesSeleccionadas, setVariablesSeleccionadas] = useState<
     string[]
   >([]);
+
+  /** Agrega o quita una variable del arreglo de seleccionadas. */
   const toggleVariable = (nombre: string) => {
     setVariablesSeleccionadas((prev) =>
       prev.includes(nombre)
@@ -144,6 +172,7 @@ const Informes = () => {
     );
   };
 
+  /** Alterna selección de todas las variables disponibles. */
   const toggleTodasVariables = () => {
     if (variablesSeleccionadas.length === variables.length) {
       setVariablesSeleccionadas([]);
@@ -152,6 +181,7 @@ const Informes = () => {
     }
   };
 
+  /** Formatea el rango para mostrarlo en el input (solo lectura). */
   const formatoRango = () => {
     if (!rango || !rango[0] || !rango[1]) return "";
     const inicio =

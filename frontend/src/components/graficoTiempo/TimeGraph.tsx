@@ -53,7 +53,18 @@ interface TimeGraphProps {
   autorefresh: boolean;
 }
 
-// Componente principal
+/**
+ * Gráfica de serie temporal.
+ *
+ * Flujo general:
+ * - Carga lista de equipos y variables desde el backend.
+ * - Consulta datos históricos (Influx vía backend) según `rangoFechas`.
+ * - Si `autorefresh` está activo, abre SSE para recibir puntos nuevos
+ *   y mantener una ventana deslizante (en el helper `initSSEConnection`).
+ *
+ * @param rangoFechas Rango opcional [inicio, fin]. Si es null, usa el rango por defecto del backend.
+ * @param autorefresh Habilita/deshabilita actualizaciones en tiempo real mediante SSE.
+ */
 const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   const [dataGraph, setDataGraph] = useState<number[]>(Array(24).fill(0));
   const ahora = new Date();
@@ -78,10 +89,12 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   //SELECTOR DE equipoSeleccionadoES-----------------------------
 
   useEffect(() => {
+    /** Carga inicial del catálogo de equipos para el selector. */
     const cargarEquipos = async () => {
       const data = await fetchEquipos();
       setEquipos(data);
     };
+    /** Carga inicial del catálogo de variables para el selector. */
     const cargarVariables = async () => {
       const data = await fetchVariables();
       setVariables(data);
@@ -93,6 +106,7 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   //---------------------------------------------------
   // Efecto de carga de datos
   useEffect(() => {
+    // Selección por defecto para evitar select vacío cuando ya hay catálogos cargados.
     if (variables.length > 0) {
       if (variablesSeleccionadas == "") {
         setVariablesSeleccionadas(variables[1].nombre);
@@ -104,6 +118,10 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
       }
     }
     if (!equipos || equipos.length === 0 || equipoSeleccionado === "") return;
+
+    /**
+     * Consulta datos a través del backend y los adapta a la estructura esperada por Chart.js.
+     */
     const fetchData = async () => {
       try {
         const data = await getInfluxData(
@@ -131,12 +149,13 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   const sourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
+    // No abrir SSE si no hay selección válida o si autorefresh está apagado.
     if (!equipoSeleccionado || !variablesSeleccionadas || !autorefresh) return;
 
-    console.log(
-      "Iniciando conexión SSE para equipoSeleccionado:",
-      equipoSeleccionado
-    );
+    // console.log(
+    //   "Iniciando conexión SSE para equipoSeleccionado:",
+    //   equipoSeleccionado
+    // );
     const source = initSSEConnection(
       equipoSeleccionado,
       variablesSeleccionadas,
@@ -149,15 +168,16 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
       if (sourceRef.current) {
         sourceRef.current.close();
         sourceRef.current = null;
-        console.log("Conexión SSE cerrada.");
+        // console.log("Conexión SSE cerrada.");
       }
     };
   }, [equipoSeleccionado, variablesSeleccionadas, autorefresh]);
 
   // Maneja el cierre si autorefresh cambia a false
   useEffect(() => {
+    // Si el usuario apaga autorefresh, cerrar SSE inmediatamente.
     if (!autorefresh && sourceRef.current) {
-      console.log("Autorefresh desactivado, cerrando conexión.");
+      // console.log("Autorefresh desactivado, cerrando conexión.");
       sourceRef.current.close();
       sourceRef.current = null;
     }
@@ -241,7 +261,12 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
       },
     },
   };
-  //DEFINICION PLUGIN CURSOR PERSONALIZADO-----------------------------
+  /**
+   * Plugin de cursor vertical:
+   * - Sigue la posición del mouse en el área del chart.
+   * - Activa tooltip en el índice correspondiente.
+   * - Dibuja una línea vertical tenue para facilitar lectura.
+   */
   const cursorPlugin: Plugin<"line"> = {
     id: "cursor",
     afterEvent: (chart, args) => {

@@ -1,3 +1,11 @@
+"""Carga de artefactos de Machine Learning.
+
+Este módulo carga (una sola vez por proceso) el modelo y scaler usados
+para predicción del sistema de aire comprimido.
+
+Nota: al importarse, realiza IO en disco (`joblib.load`).
+"""
+
 import os
 import joblib
 from django.conf import settings

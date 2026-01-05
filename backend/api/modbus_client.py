@@ -1,3 +1,14 @@
+"""Cliente Modbus TCP asíncrono.
+
+Este módulo implementa:
+- Decodificación de registros Modbus según el tipo de variable.
+- Lectura asíncrona por bloques para eficiencia (reduce round-trips).
+- Registro de mediciones en InfluxDB (`Energia` y acumuladores).
+- Arranque en background (threads) mediante `start_modbus_async()`.
+
+La lista de variables se obtiene desde la API (`/variables/`) usando `POSTGRES_URL`.
+"""
+
 import time
 import threading
 
@@ -31,6 +42,7 @@ INTERVALO_MODBUS_SEGUNDOS = env.int("INTERVALO_MODBUS_SEGUNDOS", default=5)
 # LECTURA FINAL
 # =============================================================================
 def size_for_type(tipo: str) -> int:
+    """Devuelve el número de registros (16-bit) que ocupa un tipo Modbus."""
     if tipo == "INT64":
         return 4
     elif tipo == "FLOAT32":
@@ -41,6 +53,15 @@ def size_for_type(tipo: str) -> int:
         return 1
 
 def decode_value(tipo: str, regs: list[int]):
+    """Decodifica una lista de registros Modbus según el tipo.
+
+    Args:
+        tipo: tipo lógico (ej. FLOAT32, INT64, 4Q_FP_PF).
+        regs: lista de enteros (registros 16-bit) ya leídos.
+
+    Returns:
+        Valor decodificado (float/int/str) o None si no se puede.
+    """
     try:
         if tipo == "INT64" and len(regs) >= 4:
             return (regs[0] << 48) | (regs[1] << 32) | (regs[2] << 16) | regs[3]
@@ -155,6 +176,7 @@ async def leer_equipo_async(nombre: str, ip: str, id_modbus: int, variables: Lis
 # =============================================================================
 @sync_to_async
 def get_equipos_online() -> List[Tuple[str, str, int]]:
+    """Devuelve (nombre, ip, id_modbus) de equipos con estado Online."""
     from api.models import Equipo
     return list(Equipo.objects.filter(estado="Online").values_list("nombre", "ip", "id_modbus"))
 
@@ -165,6 +187,11 @@ def get_equipos_online() -> List[Tuple[str, str, int]]:
 
 @sync_to_async
 def registrar_medicion_safe(equipo: str, datos: Dict[str, Any], timestamp: str):
+    """Registra una medición de energía en InfluxDB (y acumuladores).
+
+    Se llama desde el loop asíncrono pero ejecuta IO sin bloquear el event loop
+    gracias a `sync_to_async`.
+    """
     from api.influx_tools import registrar_medicion  
     from api.influx_tools import EnergyMeterAccumulator
     meters = {}
@@ -194,6 +221,7 @@ def registrar_medicion_safe(equipo: str, datos: Dict[str, Any], timestamp: str):
 # CICLO PRINCIPAL
 # =============================================================================
 async def ciclo_modbus_async_all(variables=None):
+    """Ciclo único: lee todos los equipos Online y registra mediciones en Influx."""
     equipos = await get_equipos_online()
     if not equipos:
         logger.info("No hay equipos online")
@@ -216,6 +244,7 @@ async def ciclo_modbus_async_all(variables=None):
 
 
 def obtener_variables():
+    """Obtiene el catálogo de variables desde el backend (endpoint `/variables/`)."""
     url = env("POSTGRES_URL") + "variables/"
     response = requests.get(url)
     try:
@@ -236,6 +265,7 @@ def obtener_variables():
 # BUCLE + INICIO
 # =============================================================================
 async def modbus_async_forever(intervalo: int = INTERVALO_MODBUS_SEGUNDOS,variables=None):
+    """Loop infinito: ejecuta `ciclo_modbus_async_all()` cada `intervalo` segundos."""
     if variables is None:
         logger.error("Variables no proporcionadas para modbus_async_forever")
         return
@@ -249,6 +279,11 @@ async def modbus_async_forever(intervalo: int = INTERVALO_MODBUS_SEGUNDOS,variab
 
 
 def start_modbus_async():
+    """Arranca hilos daemon:
+
+    - Un hilo refresca el catálogo de variables cada 60s.
+    - Otro hilo corre el loop Modbus (asyncio) con el catálogo actual.
+    """
     shared = {"variables": None}   #  contenedor compartido
 
     def run_variables():

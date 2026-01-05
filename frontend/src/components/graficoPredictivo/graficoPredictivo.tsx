@@ -36,11 +36,23 @@ declare module "chart.js" {
   }
 }
 
+/**
+ * Props del gráfico predictivo.
+ * - `estimar`: habilita/deshabilita modo predicción (y SSE asociado).
+ * - `sistema`: nombre/identificador del sistema a consultar.
+ */
 interface GraficoPredictivoProps {
   estimar: boolean;
   sistema: string;   // ← CORREGIDO: ahora viene del padre
 }
 
+/**
+ * Gráfico predictivo (día completo, 1440 puntos).
+ *
+ * Muestra dos series:
+ * - Consumo real acumulado (cargado inicialmente + actualizado por SSE).
+ * - Consumo estimado (actualizado por SSE cuando `estimar` está activo).
+ */
 const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema }) => {
 
   // 1440 minutos del día
@@ -60,6 +72,10 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
   useEffect(() => {
     if (!sistema) return;
 
+    /**
+     * Consulta datos reales del día desde el backend (acumulados) y los mapea
+     * al índice minuto-del-día (0..1439).
+     */
     const cargarDatosReales = async () => {
       const ahora = new Date();
       const rangoFechas: [Date, Date] = [
@@ -102,7 +118,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
       if (sourceRef.current) {
         sourceRef.current.close();
         sourceRef.current = null;
-        console.log("Conexión SSE cerrada.");
+        // console.log("Conexión SSE cerrada.");
       }
     };
   }, [sistema, estimar]);
@@ -110,7 +126,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
   // Cerrar SSE si estimar cambia a false
   useEffect(() => {
     if (!estimar && sourceRef.current) {
-      console.log("Predicción detenida, cerrando SSE.");
+      // console.log("Predicción detenida, cerrando SSE.");
       sourceRef.current.close();
       sourceRef.current = null;
     }
@@ -121,7 +137,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
   //----------------------------------------------------
   useEffect(() => {
       if (!sistema || !estimar) return;
-      console.log("Iniciando SSE para datos reales de:", sistema);
+      // console.log("Iniciando SSE para datos reales de:", sistema);
       const source = initSSEConnectionSistemas(
         sistema,
         setDataGraphReal
@@ -132,7 +148,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
         if (sourceRef.current) {
           sourceRef.current.close();
           sourceRef.current = null;
-          console.log("Conexión SSE cerrada.");
+          // console.log("Conexión SSE cerrada.");
         }
       };
     }, [sistema, estimar]);
@@ -140,7 +156,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
     // Maneja el cierre si autorefresh cambia a false
     useEffect(() => {
       if (!estimar && sourceRef.current) {
-        console.log("Predicción detenida, cerrando SSE.");
+        // console.log("Predicción detenida, cerrando SSE.");
         sourceRef.current.close();
         sourceRef.current = null;
       }
@@ -230,6 +246,10 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
     },
   };
 
+  /**
+   * Plugin de cursor vertical para mejorar lectura con 1440 puntos.
+   * Activa tooltip y dibuja línea vertical siguiendo el mouse.
+   */
   const cursorPlugin: Plugin<"line"> = {
     id: "cursor",
     afterEvent: (chart, args) => {

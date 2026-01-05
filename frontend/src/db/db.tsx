@@ -1,12 +1,28 @@
-// backend/src/db.ts
+/**
+ * Capa de acceso a datos (frontend).
+ *
+ * Este módulo centraliza:
+ * - Resolución de URL base del backend (por variable de entorno o localhost).
+ * - Llamados HTTP (axios/fetch) a endpoints Django.
+ * - Helpers de formateo de series temporales.
+ * - Conexiones SSE (Server-Sent Events) para gráficas en tiempo real.
+ */
 import axios from 'axios';
 
-
+/**
+ * Obtiene la URL base del backend desde `VITE_API_URL`.
+ *
+ * Si no existe la variable de entorno, usa `http://localhost:8000`.
+ */
 const getApiUrl = () => {
   return import.meta.env.VITE_API_URL || "http://localhost:8000";
 };
 
-
+/**
+ * Lee una cookie del navegador por nombre.
+ *
+ * Usado principalmente para recuperar `csrftoken` (Django) luego de llamar `/api/csrf/`.
+ */
 function getCookie(name: string): string | undefined {
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
@@ -17,7 +33,14 @@ function getCookie(name: string): string | undefined {
   return undefined;
 }
 
-
+/**
+ * Crea/guarda un equipo en el backend.
+ *
+ * Flujo:
+ * 1) Solicita cookie CSRF a Django (`/api/csrf/`) con `withCredentials`.
+ * 2) Lee `csrftoken` desde cookies.
+ * 3) Envía el payload del equipo a `/api/equipos/` con header `X-CSRFToken`.
+ */
 export const guardarEquipo = async (equipo:Equipo) => {
   const API_URL = getApiUrl();
 
@@ -27,9 +50,9 @@ export const guardarEquipo = async (equipo:Equipo) => {
     });
 
     const csrfToken = getCookie('csrftoken');
-    console.log('CSRF token:', csrfToken);
-    console.log("Payload enviado:", equipo);
-    const response = await axios.post(
+    // console.log('CSRF token:', csrfToken);
+    // console.log("Payload enviado:", equipo);
+    await axios.post(
       `${API_URL}/api/equipos/`,
       equipo,
       
@@ -41,7 +64,7 @@ export const guardarEquipo = async (equipo:Equipo) => {
     withCredentials: true,
   });
 
-    console.log('Equipo guardado:', response.data);
+    // console.log('Equipo guardado:', response.data);
   } catch (error) {
   if (axios.isAxiosError(error) && error.response) {
     console.error("Detalles del error:", error.response.data);
@@ -51,7 +74,15 @@ export const guardarEquipo = async (equipo:Equipo) => {
 }
 };
 
-
+/**
+ * Normaliza una serie temporal de mediciones para gráficas.
+ *
+ * - Si `datos` está vacío, genera una serie de ceros y labels con base en `rangoFechas`.
+ * - Si `datos` tiene valores, mapea `timestamp` a labels y `valor` a valores.
+ *
+ * @param datos Lista de puntos con al menos `timestamp` y opcionalmente `valor`.
+ * @param rangoFechas Rango [inicio, fin] opcional para construir labels cuando no hay datos.
+ */
 export const procesarDatos = (
   datos: any[],
   rangoFechas: [Date, Date] | null = null
@@ -143,6 +174,15 @@ export const procesarDatos = (
   };
 };
 
+/**
+ * Consulta datos históricos en InfluxDB a través del backend.
+ *
+ * Si no se envía rango, consulta los últimos 5 minutos.
+ *
+ * @param medidor Identificador del medidor/equipo.
+ * @param variable Variable a consultar (si está vacío, usa "Voltage A-B").
+ * @param rangoFechas Rango [inicio, fin] opcional.
+ */
 export const getInfluxData = async (
   medidor: string,
   variable: string,
@@ -168,6 +208,17 @@ export const getInfluxData = async (
   return res.json();
 };
 
+/**
+ * Abre una conexión SSE para predicciones (modo gráfico parcial/actualizado).
+ *
+ * Espera eventos JSON con forma:
+ * - `tipo === "grafico_actualizado"`
+ * - `contenido` como lista de puntos `{ timestamp, valor }`
+ *
+ * Actualiza `setDataGraph` en el índice minuto-del-día (0..1439).
+ *
+ * @returns `EventSource` para poder cerrarlo desde el componente (ej. `source.close()`).
+ */
 export const initSSEConnectionPredictivo = (
   sistema: string,
   setDataGraph: React.Dispatch<React.SetStateAction<number[]>>
@@ -211,6 +262,17 @@ export const initSSEConnectionPredictivo = (
   return source;
 };
 
+/**
+ * Abre una conexión SSE para actualizaciones de una gráfica (tiempo real).
+ *
+ * Mantiene una ventana deslizante de `MAX_DATA_POINTS` (60 por defecto).
+ *
+ * @param medidor Medidor/equipo fuente.
+ * @param variable Variable a graficar.
+ * @param setChartLabels Setter React para el eje X.
+ * @param setDataGraph Setter React para el eje Y.
+ * @returns `EventSource` para poder cerrarlo desde el componente.
+ */
 export const initSSEConnection =(
   medidor: string,
   variable: string,
@@ -224,10 +286,10 @@ export const initSSEConnection =(
 );
 
   source.onmessage = (event) => {
-    console.log("Evento SSE crudo:", event.data);
+    // console.log("Evento SSE crudo:", event.data);
     try {
       const payload = JSON.parse(event.data);
-      console.log("Datos SSE recibidos:", payload);
+      // console.log("Datos SSE recibidos:", payload);
         
       if (payload.tipo === "grafico_actualizado") {
         const nuevosDatos: { timestamp: string; valor: number }[] = payload.contenido;
@@ -262,6 +324,11 @@ export const initSSEConnection =(
   return source;
 }
 
+/**
+ * Consulta acumulados (kWh u otra métrica) para un rango y sistema.
+ *
+ * Si `rangoFechas` es null, envía parámetros vacíos (backend decide el rango por defecto).
+ */
 export const getAcumulados = async (rangoFechas: [Date, Date] | null = null, sistema: string) => {
   const apiUrl = getApiUrl();
   const url = `${apiUrl}/api/get_acumulados?inicio=${rangoFechas ? rangoFechas[0].toISOString() : ''}&fin=${rangoFechas ? rangoFechas[1].toISOString() : ''}&sistema=${sistema}`;
@@ -312,6 +379,15 @@ export type InformeResult =
   | { kind: "json"; data: any }
   | { kind: "file"; blob: Blob; filename: string };
 
+/**
+ * Solicita al backend un informe armado (JSON o archivo).
+ *
+ * El endpoint puede responder:
+ * - JSON (ej. errores, mensajes o reportes resumidos)
+ * - Archivo binario (xlsx/csv)
+ *
+ * @returns Un discriminated-union: `{ kind: "json" }` o `{ kind: "file" }`.
+ */
 export const fetchInforme = async (params: {
   nombreInforme?: string;
   rango?: [Date, Date] | null;
@@ -348,6 +424,11 @@ export const fetchInforme = async (params: {
   return { kind: "file", blob, filename };
 };
 
+/**
+ * Lista equipos desde el backend.
+ *
+ * Soporta respuestas en formato lista plana o paginada (`results`).
+ */
 export const fetchEquipos = async (): Promise<Equipo[]> => {
   const apiUrl = getApiUrl();
   try {
@@ -361,6 +442,11 @@ export const fetchEquipos = async (): Promise<Equipo[]> => {
   }
 };
 
+/**
+ * Lista variables desde el backend.
+ *
+ * Soporta respuestas en formato lista plana o paginada (`results`).
+ */
 export const fetchVariables = async (): Promise<Variable[]> => {
   const apiUrl = getApiUrl();
   try {
@@ -374,6 +460,11 @@ export const fetchVariables = async (): Promise<Variable[]> => {
   }
 };
 
+/**
+ * Lista subcategorías desde el backend.
+ *
+ * Soporta respuestas en formato lista plana o paginada (`results`).
+ */
 export const fetchSubcategorias = async (): Promise<Subcategoria[]> => {
   const apiUrl = getApiUrl();
   try {
@@ -387,6 +478,11 @@ export const fetchSubcategorias = async (): Promise<Subcategoria[]> => {
   }
 };
 
+/**
+ * Lista máquinas desde el backend.
+ *
+ * Soporta respuestas en formato lista plana o paginada (`results`).
+ */
 export const fetchMaquinas = async (): Promise<Maquina[]> => {
   const apiUrl = getApiUrl();
   try {
@@ -400,6 +496,11 @@ export const fetchMaquinas = async (): Promise<Maquina[]> => {
   }
 };
 
+/**
+ * Lista sistemas desde el backend.
+ *
+ * Soporta respuestas en formato lista plana o paginada (`results`).
+ */
 export const fetchSistemas = async (): Promise<Sistema[]> => {
   const apiUrl = getApiUrl();
   try {
@@ -415,6 +516,13 @@ export const fetchSistemas = async (): Promise<Sistema[]> => {
 
 
 
+/**
+ * Abre una conexión SSE para predicción del total estimado del día.
+ *
+ * Espera eventos JSON con forma:
+ * - `tipo === "grafico_actualizado"`
+ * - `contenido.total_estimado_kWh` numérico
+ */
 export const initSSEConnectionPredictivoTodoElDia = (
   sistema: string,
   setEstimado: React.Dispatch<React.SetStateAction<number>>
@@ -448,6 +556,11 @@ export const initSSEConnectionPredictivoTodoElDia = (
 };
 
 
+/**
+ * Abre una conexión SSE para gráficas por sistema (actualización minuto-del-día).
+ *
+ * Calcula el índice como `hora*60 + minuto` y actualiza solo ese punto.
+ */
 export const initSSEConnectionSistemas = (
   sistema: string,
   setDataGraph: React.Dispatch<React.SetStateAction<number[]>>

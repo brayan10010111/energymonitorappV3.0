@@ -1,3 +1,11 @@
+"""Configuración de conexión a InfluxDB.
+
+Centraliza la construcción del `InfluxDBClient` leyendo variables del `.env`:
+- `INFLUX_URL`
+- `INFLUX_TOKEN`
+- `INFLUX_ORG`
+"""
+
 import os
 from influxdb_client import InfluxDBClient
 
@@ -7,6 +15,11 @@ import environ
 
 
 def get_influx_client():
+    """Crea un cliente de InfluxDB usando variables de entorno.
+
+    Raises:
+        ValueError: si falta alguna variable requerida.
+    """
     env = environ.Env()
     environ.Env.read_env()
     url = env("INFLUX_URL")

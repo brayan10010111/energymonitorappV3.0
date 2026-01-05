@@ -1,3 +1,14 @@
+"""Lógica de predicción de consumo.
+
+Este módulo implementa el pipeline para el sistema "AIRE COMPRIMIDO":
+- Consulta de datos (energía + sensores) desde Influx (vía `api.influx_tools`).
+- Transformación a features (lags, variables temporales, eficiencia, etc.).
+- Predicción autoregresiva de minutos futuros usando un modelo + scaler (joblib).
+- Cálculo del total estimado del día (real + predicho).
+
+Se usa desde endpoints SSE en `api.views`.
+"""
+
 from api.influx_tools import get_equipos_aire_comprimido_online, get_influx_data_for_air_compressor_prediction, get_influx_data_for_air_compressor_prediction_all_day, sumar_acumulador_calculo_total 
 import logging
 logger = logging.getLogger("estado_equipos")
@@ -10,6 +21,13 @@ async def get_datos_para_prediccion():
 
 
 def crear_features_para_modelo(df_trabajo):
+    """Agrega features derivadas a un dataframe por minuto.
+
+    Incluye:
+    - variables temporales (hora/minuto/día_semana)
+    - detección heurística de equipos Atlas activos
+    - features de eficiencia y lags
+    """
     #==============================================================
     #CREAR FEATURES ADICIONALES
     #==============================================================
@@ -184,6 +202,7 @@ def predecir_minutos_futuros(df_trabajo, modelo, scaler, minutos=30):
 
 
 def predecir_consumo_compresor(df_trabajo):
+    """Predice los próximos 30 minutos para el compresor usando artefactos cargados."""
     from api.model_loader import modelo_aire, scaler_aire
     if df_trabajo is None or df_trabajo.empty:
         raise ValueError("df_trabajo está vacío. No se puede predecir.")
@@ -269,6 +288,11 @@ def predecir_consumo_restante_del_dia(df_trabajo, modelo, scaler):
     return predicciones, df_pred
 
 def calcular_consumo_total_dia(consumo_real_minuto, predicciones):
+    """Calcula kWh reales, predichos y total estimado para el día.
+
+    Nota: asume que `consumo_real_minuto` está en kW por minuto.
+    Convierte a kWh dividiendo por 60.
+    """
     real_kWh = sum(consumo_real_minuto) / 60
     pred_kWh = sum(p["prediccion_kW"] for p in predicciones) / 60
     return {
@@ -279,6 +303,11 @@ def calcular_consumo_total_dia(consumo_real_minuto, predicciones):
 
 
 async def calcular_prediccion_consumo_dia(sistema: str, intervalo=60):
+    """Calcula el total estimado del día (real acumulado + predicción restante).
+
+    Retorna un payload listo para SSE con la forma:
+    - `{"tipo": "grafico_actualizado", "contenido": {real_kWh, pred_kWh, total_estimado_kWh}}`
+    """
     from api.model_loader import modelo_aire, scaler_aire
 
     try:

@@ -12,6 +12,14 @@ import Layout from './Pages/layout/Layout';
 import Informes from './Pages/Informes/Informes';
 import Predictivo from './Pages/Predictivo/Predictivo';
 
+/**
+ * Componente raíz de la app.
+ *
+ * Responsabilidades:
+ * - Configurar el Router.
+ * - Envolver las rutas en `Layout`.
+ * - Mantener el estado `collapsed` del sidebar para compartirlo entre vistas.
+ */
 function App() {
 const [collapsed, setCollapsed] = useState(false);
 

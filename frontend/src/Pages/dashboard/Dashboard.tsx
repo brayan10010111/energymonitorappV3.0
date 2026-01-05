@@ -6,10 +6,24 @@ import { DateRangePicker } from "rsuite";
 import { addDays, addHours, addMinutes, setHours, setMinutes } from "date-fns";
 import { FaCalendarAlt } from "react-icons/fa";
 import "rsuite/dist/rsuite.min.css";
+
+/**
+ * Props del Dashboard.
+ * `collapsed` se usa para ajustar el layout cuando el sidebar está colapsado.
+ */
 type DashboardProps = {
   collapsed: boolean;
 };
 
+/**
+ * Vista Dashboard.
+ *
+ * Responsabilidades:
+ * - Permitir al usuario escoger un rango de fechas (DateRangePicker).
+ * - Controlar el modo `autorefresh` (switch) que habilita/deshabilita SSE
+ *   en los componentes de gráficas.
+ * - Renderizar una grilla de gráficas `TimeGraph` que consumen Influx vía backend.
+ */
 const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   // const desdeInicial = setMinutes(setHours(hoy, 0), 0); // 00:00
   // const hastaInicial = setMinutes(setHours(hoy, 23), 59); // 23:59\
@@ -22,6 +36,13 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   const [checked, setChecked] = useState(false);
 
   const ahora = new Date();
+
+  /**
+   * Abre el popup del DateRangePicker cuando el usuario hace click en el ícono.
+   *
+   * Nota: actualmente usa una variable local `mostrar`; el efecto visual depende
+   * de que `pickerRef.current.open()` sea llamado.
+   */
   const handleClick = () => {
     mostrar = !mostrar;
     if (mostrar) {
@@ -85,6 +106,10 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   ];
 
   useEffect(() => {
+    /**
+     * Evalúa el ancho de la ventana para decidir si se usa el DateRangePicker
+     * completo (desktop) o el compacto (móvil).
+     */
     const evaluarAncho = () => {
       setmostrarDatepicker(window.innerWidth > 768); // cambia el umbral según tu diseño
     };
@@ -96,6 +121,12 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
     return () => window.removeEventListener("resize", evaluarAncho);
   }, []);
 
+  /**
+   * Maneja la selección de rango.
+   * - Si coincide con rangos rápidos (últimos 5/30 min, última hora, últimas 8h):
+   *   respeta horas/minutos exactos.
+   * - Si es manual (por calendario): normaliza a día completo (00:00 a 23:59).
+   */
   const handleChange = (rangoSeleccionado: [Date, Date] | null) => {
     if (!rangoSeleccionado) return;
 
@@ -120,6 +151,10 @@ const Dashboard: React.FC<DashboardProps> = ({ collapsed }) => {
   };
   // const [sidebarColapsado, setSidebarColapsado] = useState(false);
 
+  /**
+   * Controla el switch de autorefresh.
+   * Cuando está activo, los `TimeGraph` abren SSE para actualizar el gráfico.
+   */
   const handleSwitchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setChecked(event.target.checked);
   };

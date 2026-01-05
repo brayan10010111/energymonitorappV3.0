@@ -1,6 +1,12 @@
 import React from "react";
 import type { Equipo } from "../../db/db";
 import "./EquiposModal.css";
+
+/**
+ * Props del modal de selección de equipos/medidores.
+ *
+ * El estado de selección se mantiene en el padre y se modifica con callbacks.
+ */
 interface EquiposModalProps {
   equipos: Equipo[];
   medidoresSeleccionados: string[];
@@ -9,6 +15,12 @@ interface EquiposModalProps {
   onClose: () => void;
 }
 
+/**
+ * Modal para seleccionar uno o varios equipos.
+ *
+ * - Permite seleccionar por fila o checkbox.
+ * - Permite seleccionar/deseleccionar todos.
+ */
 const EquiposModal: React.FC<EquiposModalProps> = ({
   equipos,
   medidoresSeleccionados,

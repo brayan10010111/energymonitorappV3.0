@@ -1,3 +1,11 @@
+"""Rutas de la aplicación API.
+
+Incluye:
+- Rutas CRUD (ViewSets) via `DefaultRouter`.
+- Endpoints utilitarios (CSRF, consultas Influx, generación de informes).
+- Endpoints SSE para actualización en tiempo real.
+"""
+
 from rest_framework.routers import DefaultRouter
 from .views import EquipoViewSet, MaquinaViewSet, SensorViewSet, SistemaViewSet, get_csrf_token, VariableViewSet, SubcategoriaViewSet
 from django.urls import include, path

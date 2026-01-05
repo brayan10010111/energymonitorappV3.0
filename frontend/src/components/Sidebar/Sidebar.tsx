@@ -4,17 +4,33 @@ import { MdDevices } from "react-icons/md";
 import React, { useState, useEffect } from 'react';
 import "./Sidebar.css";
 import { Link } from 'react-router-dom';
+
+/**
+ * Props del Sidebar.
+ * - `collapsed`: indica si está colapsado visualmente.
+ * - `setCollapsed`: actualiza el estado compartido en `App/Layout`.
+ */
 type SidebarProps = {
   collapsed: boolean;
   setCollapsed: (value: boolean) => void;
 };
 
-
+/**
+ * Sidebar de navegación.
+ *
+ * Comportamiento:
+ * - Responsive: si el ancho < BREAKPOINT, fuerza colapsado.
+ * - Toggle manual: en pantallas grandes permite alternar colapsado/expandido.
+ */
 const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => {
 
   const BREAKPOINT = 600;
   const [isManuallyToggled, setIsManuallyToggled] = useState(false);
   useEffect(() => {
+    /**
+     * Maneja resize: colapsa automáticamente en pantallas pequeñas.
+     * En pantallas grandes, respeta el toggle manual.
+     */
     const handleResize = () => {
       if (window.innerWidth < BREAKPOINT) {
         setCollapsed(true);
@@ -28,6 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => {
     };
   }, [isManuallyToggled]); // Se vuelve a ejecutar si el estado del toggle manual cambia
 
+  /** Alterna el estado manual de colapso (solo aplica a pantallas >= BREAKPOINT). */
   const handleToggleSidebar = () => {
     const newToggleState = !isManuallyToggled;
     setIsManuallyToggled(newToggleState);

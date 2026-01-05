@@ -1,3 +1,14 @@
+"""Arranque diferido de tareas de background.
+
+Este módulo se invoca desde `api.apps.ApiConfig.ready()` para iniciar
+procesos/hilos de larga duración una vez Django está inicializado.
+
+Tareas que se levantan:
+- Lectura Modbus asíncrona (threads + asyncio) para registrar mediciones.
+- Lectura OPC UA asíncrona para registrar sensores.
+- Keepalive / monitoreo de equipos (actualiza `estado` en DB).
+"""
+
 import threading
 import time
 
@@ -8,6 +19,11 @@ logger = logging.getLogger("estado_equipos")
 
 
 def iniciar_monitoreo_diferido():
+    """Inicia un hilo daemon que arranca tareas de monitoreo tras un retardo.
+
+    El retardo evita errores típicos cuando Django aún está cargando apps/ORM.
+    Retorna el objeto `Thread` para observabilidad/testing.
+    """
     def worker():
         logger.info("Iniciando hilo de monitoreo en segundo plano...")
         time.sleep(3)  # Espera a que Django termine de inicializarse
