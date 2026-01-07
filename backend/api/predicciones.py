@@ -77,6 +77,7 @@ def crear_features_para_modelo(df_trabajo):
     df_trabajo['es_laborable'] = (df_trabajo.index.weekday < 5).astype(int)
 
     df_trabajo = df_trabajo.dropna()
+
     return df_trabajo
 
 
@@ -91,8 +92,10 @@ async def preparar_datos_para_modelo(datos):
     datos_energia, datos_sensores = datos
     df_energia = pd.DataFrame(datos_energia)
     df_sensores = pd.DataFrame(datos_sensores)
-
-    if df_energia.empty or df_sensores.empty:
+    print("DATAFRAMES")
+    print(df_sensores.shape)
+    print(df_energia.shape)
+    if df_energia.empty     or df_sensores.empty:
         logger.warning("No hay datos suficientes para preparar el modelo")
         return None
 
@@ -106,17 +109,20 @@ async def preparar_datos_para_modelo(datos):
         return None
     
     Equipos_aire_comprimido_online = await get_equipos_aire_comprimido_online()
-
     
     df_energia["timestamp"] = pd.to_datetime(df_energia["_time"], format="ISO8601").dt.tz_localize(None)
     df_energia.set_index("timestamp", inplace=True)
 
     # Crear nombre único por equipo
     # Ejemplo: CASA_Energia_activa_consumida_minuto
-    df_energia["campo_equipo"] = df_energia["_measurement"] + "_" + df_energia["_field"]
-    # Filtrar solo equipos online
-    df = df_energia[df_energia["_measurement"].isin(Equipos_aire_comprimido_online)]
+    df_energia["equipo"] = df_energia["_field"].str.split("_").str[0]
 
+    # Crear campo_equipo
+    df_energia["campo_equipo"] = df_energia["_measurement"] + "_" + df_energia["_field"]
+
+    # Filtrar solo equipos online
+    df = df_energia[df_energia["equipo"].isin(Equipos_aire_comprimido_online)]
+    
     # Pivotear: columnas = cada equipo
     df_pivot = df.pivot_table(
         index=df.index,
@@ -130,18 +136,22 @@ async def preparar_datos_para_modelo(datos):
     df_consumo = df_pivot[['consumo_total_kW']].reset_index()
     
     df_sensores["timestamp"] = pd.to_datetime(df_sensores["_time"], format="ISO8601").dt.tz_localize(None)
-
-    df_flujo = df_sensores[df_sensores['_field'] == 'FLUJO_INSTANTANEO_SCFM'][['timestamp', '_value']].rename(columns={'_value': 'SCFM_total'})
-    df_presion = df_sensores[df_sensores['_field'] == 'PRESION_AIRE_GENERAL'][['timestamp', '_value']].rename(columns={'_value': 'presion_bar'})
+    
+    df_flujo = df_sensores[df_sensores['_measurement'] == 'FLUJO_INSTANTANEO_SCFM'][['timestamp', '_value']].rename(columns={'_value': 'SCFM_total'})
+    df_presion = df_sensores[df_sensores['_measurement'] == 'PRESION_AIRE_GENERAL'][['timestamp', '_value']].rename(columns={'_value': 'presion_bar'})
     df_flujo = df_flujo.set_index('timestamp').resample('1min').mean()
+    df_flujo = df_flujo.fillna(0)
     df_presion = df_presion.set_index('timestamp').resample('1min').mean()
+    df_presion = df_presion.fillna(0)
     df_consumo_1min = df_consumo.set_index('timestamp').resample('1min').mean()
-
     df_trabajo = df_flujo.join(df_presion, how='inner').join(df_consumo_1min, how='inner')
+    print("ANTES DE DROPNA FINAL:", df_trabajo.shape)
     df_trabajo = df_trabajo.dropna()
+    print("DESPUÉS DE DROPNA FINAL:", df_trabajo.shape)
 
     df_trabajo = crear_features_para_modelo(df_trabajo)
-
+    print("DESPUÉS DE crear_features_para_modelo:", df_trabajo.shape)
+    
     return df_trabajo
 
 def predecir_minutos_futuros(df_trabajo, modelo, scaler, minutos=30):
@@ -214,7 +224,7 @@ def predecir_consumo_compresor(df_trabajo):
     return predicciones
 
 import asyncio
-async def prediccion_en_tiempo_real(intervalo=60):
+async def prediccion_en_tiempo_real(intervalo=10):
     """
     Cada minuto:
     - Obtiene últimos 30 minutos reales
@@ -232,7 +242,6 @@ async def prediccion_en_tiempo_real(intervalo=60):
 
             # 2. Preparar features
             df_trabajo = await preparar_datos_para_modelo(datos)
-
             if df_trabajo is None or df_trabajo.empty:
                 logger.warning("No hay datos suficientes para predecir")
                 await asyncio.sleep(intervalo)
@@ -245,7 +254,7 @@ async def prediccion_en_tiempo_real(intervalo=60):
                 scaler=scaler_aire,
                 minutos=30
             )
-
+            print(f"predicciones {predicciones}")
             # 4. Registrar o enviar la predicción
             logger.info(f"Predicción generada a las {datetime.utcnow()}: {predicciones}")
 
@@ -322,10 +331,9 @@ async def calcular_prediccion_consumo_dia(sistema: str, intervalo=60):
 
         # 2. Consumo real por minuto
         consumo_real_minuto = [d["_value"] for d in datos_reales]
-
+        
         # 3. Preparar features
-        df_trabajo = await preparar_datos_para_modelo((datos_reales, []))
-
+        df_trabajo = await preparar_datos_para_modelo((datos_reales, datos_sensores))
         if df_trabajo is None or getattr(df_trabajo, "empty", False):
             return {
                 "tipo": "sin_datos",

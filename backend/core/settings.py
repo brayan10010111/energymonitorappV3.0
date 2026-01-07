@@ -120,7 +120,7 @@ DATABASES = {
         'NAME': os.getenv('POSTGRES_DB'),
         'USER': os.getenv('POSTGRES_USER'),
         'PASSWORD': os.getenv('POSTGRES_PASSWORD'),
-        'HOST': env('POSTGRES_HOST'),
+        'HOST': os.getenv('POSTGRES_HOST'),
         'PORT': '5432',
     }
 }
@@ -222,6 +222,20 @@ LOGGING = {
             "filename": "estado_equipos.log",
             "formatter": "simple",
         },
+
+        "estado_equipos_debug_file": {
+            "level": "DEBUG",
+            "class": "logging.FileHandler",
+            "filename": "estado_equipos_debug.log",
+            "formatter": "simple",
+        },
+
+        "estado_equipos_error_file": {
+            "level": "ERROR",
+            "class": "logging.FileHandler",
+            "filename": "estado_equipos_error.log",
+            "formatter": "simple",
+        },
     },
 
     "formatters": {
@@ -233,21 +247,50 @@ LOGGING = {
 
     "loggers": {
         "estado_equipos": {
-            "handlers": ["estado_equipos_file"],
-            "level": "INFO",
+            "handlers": [
+                "estado_equipos_file",
+                "estado_equipos_debug_file",
+                "estado_equipos_error_file",
+            ],
+            "level": "DEBUG", 
+            "propagate": False,
+        },
+        "opcua": {
+        "handlers": [],
+        "level": "WARNING",
+        "propagate": False,
+        },
+        "opcua.client": {
+            "handlers": [],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "opcua.ua": {
+            "handlers": [],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "opcua.uaprotocol": {
+            "handlers": [],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "opcua.binary": {
+            "handlers": [],
+            "level": "WARNING",
             "propagate": False,
         },
 
-        "pymodbus": {          # silencia todo pymodbus
+
+        "pymodbus": {
             "handlers": [],
             "level": "CRITICAL",
             "propagate": False,
         },
-        "pymodbus.client": {   # silencia ModbusTcpClient
+        "pymodbus.client": {
             "handlers": [],
             "level": "CRITICAL",
             "propagate": False,
         },
-
     }
 }

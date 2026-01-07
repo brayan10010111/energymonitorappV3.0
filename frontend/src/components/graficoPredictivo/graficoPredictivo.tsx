@@ -208,7 +208,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
       },
       title: {
         display: true,
-        text: "Consumo de energía en el día",
+        text: "Grafico en tiempo real",
         font: { family: "Roboto", size: 18 },
         color: "#ffffffff",
       },

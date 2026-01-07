@@ -472,7 +472,7 @@ async def get_influx_data_for_air_compressor_prediction():
     #     logger.info("No hay equipos de Compresor de Aire online")
     #     return []
 
-    sensores_list = ", ".join([f'"{nombre}"' for nombre in sensores_aire_comprimido])
+    sensores_list = ", ".join([f'"{nombre[0]}"' for nombre in sensores_aire_comprimido])
     # measurement_list = ", ".join([f'"{nombre}"' for nombre in filtro_aire_compresor])
 
     # ============================
@@ -519,71 +519,65 @@ async def get_influx_data_for_air_compressor_prediction():
                 "_measurement": record.get_measurement(),
                 "_field": record.get_field()
             })
-
     return [datos_energia, datos_sensores]
+
 
 from datetime import datetime
 
 class EnergyMeterAccumulator:
-    """Acumulador por equipo basado en un contador total monotónico.
+    """Acumulador basado en un contador total monotónico."""
 
-    A partir del valor total (energía entregada acumulada), calcula:
-    - consumo por segundo (delta)
-    - consumo por minuto (al cambiar el minuto)
-    - consumo por hora (al cambiar la hora)
-
-    Se usa desde `api.modbus_client.registrar_medicion_safe()`.
-    """
     def __init__(self, name: str):
         self.name = name
-        self.prev_total = 0
-        self.start_minute_total = 0
-        self.start_hour_total = 0
+        self.prev_total = None
+
         self.last_minute = None
         self.last_hour = None
-        self.accum_minute_live = 0
-        self.accum_hour_live = 0
+
+        self.start_minute_total = None
+        self.start_hour_total = None
+
         self.consumo_minuto = 0
         self.consumo_hora = 0
 
     def process(self, dato: float) -> dict:
-        """Procesa un nuevo valor total y devuelve métricas derivadas."""
         ahora = datetime.now()
         now_min = ahora.minute
         now_hour = ahora.hour
 
-        # Validar dato
+        # Normalizar dato
         dato = float(dato) if dato and dato > 0 else 0
 
-        # Consumo instantáneo
-        delta = 0
-        if dato >= self.prev_total and dato > 0 and self.prev_total > 0:
-            delta = dato - self.prev_total
+        # Primer dato
+        if self.prev_total is None:
+            self.prev_total = dato
+            self.start_minute_total = dato
+            self.start_hour_total = dato
+            self.last_minute = now_min
+            self.last_hour = now_hour
+            return {
+                f"{self.name}_actual": dato,
+                f"{self.name}_consumo_segundo": 0,
+                f"{self.name}_consumo_minuto": 0,
+                f"{self.name}_consumo_hora": 0,
+            }
+
+        # Calcular delta
+        delta = dato - self.prev_total if dato >= self.prev_total else 0
         self.prev_total = dato
 
-        # Acumular
-        self.accum_minute_live += delta
-        self.accum_hour_live += delta
-
         # Cierre de minuto
-        if self.last_minute is None:
-            self.last_minute = now_min
-        if now_min != self.last_minute:  # cambio de minuto
-            self.consumo_minuto = self.accum_minute_live
+        if now_min != self.last_minute:
+            self.consumo_minuto = dato - self.start_minute_total
             self.start_minute_total = dato
-            self.accum_minute_live = 0
             self.last_minute = now_min
 
         # Cierre de hora
-        if self.last_hour is None:
-            self.last_hour = now_hour
-        if now_hour != self.last_hour:  # cambio de hora
-            self.consumo_hora = self.accum_hour_live
+        if now_hour != self.last_hour:
+            self.consumo_hora = dato - self.start_hour_total
             self.start_hour_total = dato
-            self.accum_hour_live = 0
             self.last_hour = now_hour
 
-        # Salida
         return {
             f"{self.name}_actual": dato,
             f"{self.name}_consumo_segundo": delta,
@@ -687,7 +681,7 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
         sensores_aire_comprimido = await get_sensores_aire_comprimido()
 
 
-        sensores_list = ", ".join([f'"{nombre}"' for nombre in sensores_aire_comprimido])
+        sensores_list = ", ".join([f'"{nombre[0]}"' for nombre in sensores_aire_comprimido])
         query = f'''
             from(bucket: "Acumuladores")
                 |> range(start: time(v: "{inicio}"), stop: time(v: "{fin}"))
@@ -727,7 +721,6 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
                     "_measurement": record.get_measurement(),
                     "_field": record.get_field()
                 })
-
         return [datos_energia, datos_sensores]
 
     except Exception as e:
@@ -768,5 +761,5 @@ def get_influx_data_last_10s_for_sistems_async(sistema: str):
         "timestamp": timestamp,
         "valor": total_kW
     }
-
+    print("Dato total:", dato_total)
     return dato_total

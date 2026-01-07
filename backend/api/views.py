@@ -175,7 +175,7 @@ async def stream_predicciones(request):
     
     async def async_generator_aire_comprimido():
         while True:
-            predicciones = await prediccion_en_tiempo_real(INTERVALO_REFRESCO*12)
+            predicciones = await prediccion_en_tiempo_real(INTERVALO_REFRESCO*1.5)
             payload = {
                 "tipo": "grafico_actualizado",
                 "contenido": predicciones

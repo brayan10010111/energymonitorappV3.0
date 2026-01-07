@@ -46,7 +46,7 @@ const Predictivo: React.FC = () => {
         sistemaSeleccionado,
         setEstimado
       );
-      // console.log("IsetEstimado:", estimado);
+      // +console.log("IsetEstimado:", estimado);
       sourceRef.current = source;
   
       return () => {
@@ -91,7 +91,7 @@ const Predictivo: React.FC = () => {
 
         {estimar && (
           <div className="resultado-predictivo">
-            <strong>Consumo de Energía Estimado:</strong> {estimado || 0} kWh
+            <strong>Consumo de Energía Estimado:</strong> {estimado && (estimado+ " kWh") || "Faltan Datos"} 
             <GraficoPredictivo
               estimar={estimar}
               sistema={sistemaSeleccionado}

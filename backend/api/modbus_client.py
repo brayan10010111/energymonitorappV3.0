@@ -30,6 +30,7 @@ import logging
 logger = logging.getLogger("estado_equipos")
 
 from api.influx_tools import registrar_acumulador
+from api.influx_tools import EnergyMeterAccumulator
 
 
 import environ
@@ -38,6 +39,11 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 INTERVALO_MODBUS_SEGUNDOS = env.int("INTERVALO_MODBUS_SEGUNDOS", default=5)
+
+# Persistencia de acumuladores por equipo.
+# Importante: NO debe estar dentro de registrar_medicion_safe(), o se reinicia cada ciclo.
+_energy_meters: Dict[str, EnergyMeterAccumulator] = {}
+_energy_meters_lock = threading.Lock()
 # =============================================================================
 # LECTURA FINAL
 # =============================================================================
@@ -192,19 +198,20 @@ def registrar_medicion_safe(equipo: str, datos: Dict[str, Any], timestamp: str):
     Se llama desde el loop asíncrono pero ejecuta IO sin bloquear el event loop
     gracias a `sync_to_async`.
     """
-    from api.influx_tools import registrar_medicion  
-    from api.influx_tools import EnergyMeterAccumulator
-    meters = {}
+    from api.influx_tools import registrar_medicion
 
     # Extraer la variable de consumo actual
     consumo_actual = datos.get("Active Energy Delivered (Into Load)", 0)
 
-    # Crear acumulador si no existe
-    if equipo not in meters:
-        meters[equipo] = EnergyMeterAccumulator(equipo)
+    # Crear/reusar acumulador persistente por equipo
+    with _energy_meters_lock:
+        meter = _energy_meters.get(equipo)
+        if meter is None:
+            meter = EnergyMeterAccumulator(equipo)
+            _energy_meters[equipo] = meter
 
-    # Procesar dato con la clase
-    resultado = meters[equipo].process(consumo_actual)
+    # Procesar dato con la clase (el objeto mantiene estado entre ciclos)
+    resultado = meter.process(consumo_actual)
 
     #Fusionar los diccionarios: mantener todas las variables originales + las nuevas métricas
     # datos_combinados = {**datos, **resultado} 

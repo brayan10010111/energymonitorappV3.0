@@ -15,7 +15,8 @@ import axios from 'axios';
  * Si no existe la variable de entorno, usa `http://localhost:8000`.
  */
 const getApiUrl = () => {
-  return import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const host = window.location.hostname;
+  return `http://${host}:8000`;
 };
 
 /**
@@ -538,8 +539,8 @@ export const initSSEConnectionPredictivoTodoElDia = (
       const payload = JSON.parse(event.data);
 
       if (payload.tipo === "grafico_actualizado") {
-        const total = payload.contenido.total_estimado_kWh;
-
+        let total = payload.contenido.contenido.total_estimado_kWh;
+        total = total/60/1000;
         // total es un número, úsalo directamente
         setEstimado(total);
       }
