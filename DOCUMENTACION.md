@@ -5,8 +5,9 @@ Aplicación web para monitoreo y analítica de consumo de energía.
 
 - **Frontend**: React + Vite (carpeta `frontend/`).
 - **Backend**: Django + Django REST Framework (carpeta `backend/`).
+- **Base de datos relacional**: Postgres (configurado en `backend/core/settings.py`).
 - **Series temporales**: InfluxDB (consultas y escritura desde el backend).
-- **Tiempo real**: SSE (Server-Sent Events) desde Django hacia el frontend.
+- **Tiempo real**: SSE (Server-Sent Events) desde Django hacia el frontend (endpoints async). En Docker el backend corre con **Daphne/ASGI**.
 - **Adquisición**:
   - **Modbus TCP**: lectura asíncrona de equipos (medidores) y escritura a Influx.
   - **OPC UA**: lectura asíncrona de sensores y escritura a Influx.
@@ -35,19 +36,39 @@ Aplicación web para monitoreo y analítica de consumo de energía.
 ## 3) Variables de entorno relevantes
 
 ### Frontend (Vite)
-- `VITE_API_URL`: URL base del backend (por defecto `http://localhost:8000`).
+Actualmente el frontend **no** usa `VITE_API_URL`.
+
+- La función `getApiUrl()` (en `frontend/src/db/db.tsx`) construye la URL como `http://{window.location.hostname}:8000`.
+  - Ejemplo: si abres el frontend en `http://localhost:3000`, las llamadas irán a `http://localhost:8000`.
+  - En Docker funciona igual porque el navegador también ve `localhost` (puerto 8000 publicado por el contenedor backend).
+
+Si en algún momento necesitas apuntar a un backend en otra URL/puerto, hay dos caminos:
+- Ajustar `getApiUrl()`.
+- O reintroducir `VITE_API_URL` y hacer que `getApiUrl()` la priorice.
 
 ### Backend (Django + servicios)
 - InfluxDB:
   - `INFLUX_URL`
   - `INFLUX_TOKEN`
   - `INFLUX_ORG`
+  - `INFLUX_TIMEOUT_MS` (opcional, default `10000`)
+
+- Postgres (Django ORM):
+  - `POSTGRES_DB`
+  - `POSTGRES_USER`
+  - `POSTGRES_PASSWORD`
+  - `POSTGRES_HOST` (en Docker: `dbPostgres`; local: `localhost`)
 - Intervalos (segundos):
   - `INTERVALO_REFRESCO` (SSE / actualización de gráficas)
   - `INTERVALO_MODBUS_SEGUNDOS` (loop Modbus)
   - `INTERVALO_OPC_SEGUNDOS` (loop OPC)
-- `POSTGRES_URL`: en este proyecto se usa como **URL base del backend** para que los hilos de Modbus/OPC consulten `variables/` y `sensores/` vía HTTP.
-  - Ejemplo esperado: `http://localhost:8000/api/`
+
+- Tareas de background:
+  - `ENABLE_BACKGROUND_TASKS` (opcional, default `true`): permite desactivar los loops Modbus/OPC/keepalive en un proceso.
+
+- `POSTGRES_URL` (nombre histórico): en este proyecto se usa como **URL base del backend** para que los hilos de Modbus/OPC consulten catálogos (`variables/` y `sensores/`) vía HTTP.
+  - Ejemplo local: `http://localhost:8000/api/`
+  - Ejemplo Docker: `http://backend:8000/api/`
 
 ## 4) Backend (Django)
 
@@ -101,7 +122,8 @@ Influx / reportes:
 ## 5) Frontend (React)
 
 ### API client (frontend/src/db/db.tsx)
-- Resuelve URL base con `VITE_API_URL`.
+- Resuelve URL base con `window.location.hostname` (forma `http://{hostname}:8000`).
+- Nota: `VITE_API_URL` no se usa actualmente.
 - Maneja CSRF para POST (Django) con cookie `csrftoken`.
 - Implementa funciones:
   - CRUD/catálogos: `fetchEquipos`, `fetchVariables`, `fetchSistemas`, etc.
@@ -175,5 +197,107 @@ Esta sección describe el propósito y comportamiento de los componentes React r
 
 ## 6) Notas operativas
 - SSE requiere mantener conexiones HTTP abiertas; revise CORS/headers y proxies.
-- Los hilos de background (Modbus/OPC/keepalive) se ejecutan dentro del proceso Django; si se despliega con múltiples workers, puede iniciar múltiples loops. (El código intenta reducir esto ejecutando en el hilo principal, pero depende del modo de despliegue.)
+- Los hilos de background (Modbus/OPC/keepalive) se ejecutan dentro del proceso Django; si se despliega con múltiples workers, puede iniciar múltiples loops.
+  - Para mitigar esto existe `ENABLE_BACKGROUND_TASKS=false` (por ejemplo, para un proceso “solo API”).
+
+## 7) Puesta en marcha
+
+### Opción A — Docker Compose (recomendado)
+
+Requisitos:
+- Docker Desktop (Windows).
+
+1) Crea un archivo `.env` en la raíz del repo (misma carpeta que `docker-compose.yml`).
+
+Tip: puedes partir de `.env.example` copiándolo a `.env` y ajustando valores.
+
+Variables mínimas sugeridas (ajusta valores):
+
+```env
+# --- Django ---
+SECRET_KEY_DJANGO=dev-secret
+DEBUG_DJANGO=true
+
+# Listas tipo "a,b,c" o JSON-like según tu configuración (django-environ)
+ALLOWED_HOSTS_DEV=localhost,127.0.0.1
+CORS_ALLOWED_ORIGINS_DEV=http://localhost:3000
+CORS_ORIGIN_WHITELIST_DEV=http://localhost:3000
+CSRF_TRUSTED_ORIGINS_DEV=http://localhost:3000
+CORS_ALLOW_METHODS_DEV=GET,POST,PUT,PATCH,DELETE,OPTIONS
+
+# --- Postgres (Django ORM) ---
+POSTGRES_DB=energymonitor
+POSTGRES_USER=energymonitor
+POSTGRES_PASSWORD=energymonitor
+POSTGRES_HOST=dbPostgres
+
+# --- InfluxDB (servicio) ---
+INFLUXDB_ADMIN_USER=admin
+INFLUXDB_ADMIN_PASSWORD=adminadmin
+INFLUX_ORG=EnergyOrg
+INFLUX_BUCKET=Energia
+
+# --- InfluxDB (cliente backend) ---
+INFLUX_URL=http://dbInflux:8086
+INFLUX_TOKEN=PEGA_AQUI_TU_TOKEN
+INFLUX_ORG=EnergyOrg
+
+# --- Loops/tiempo real ---
+INTERVALO_REFRESCO=1
+INTERVALO_MODBUS_SEGUNDOS=5
+INTERVALO_OPC_SEGUNDOS=5
+ENABLE_BACKGROUND_TASKS=true
+
+# --- URL base del backend para hilos (nombre histórico) ---
+POSTGRES_URL=http://backend:8000/api/
+```
+
+2) Levanta servicios:
+
+- `docker compose up --build`
+
+3) Ejecuta migraciones y crea superusuario:
+
+- `docker compose exec backend python manage.py migrate`
+- `docker compose exec backend python manage.py createsuperuser`
+
+4) URLs útiles:
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8000/api/`
+- Admin: `http://localhost:8000/admin/`
+- Influx UI: `http://localhost:8086`
+
+Notas importantes:
+- El contenedor Influx inicializa **un** bucket (el que pongas en `INFLUX_BUCKET`). El código del backend usa **tres** buckets fijos: `Energia`, `Acumuladores`, `Sensores`. Crea los buckets faltantes en la UI de Influx o ajusta el código.
+- El backend en Docker corre con `daphne ... core.asgi:application`.
+
+### Opción B — Ejecución local (Windows)
+
+Requisitos sugeridos:
+- Python 3.11+.
+- Node.js 22+.
+
+Backend:
+1) (Opcional) crea venv y activa.
+2) Instala dependencias (hay wheels locales en `backend/packages/` para instalación offline):
+   - `pip install -r backend/requirements.txt --find-links backend/packages`
+3) Define variables de entorno (mínimo Postgres + Django + Influx).
+4) Migra y ejecuta:
+   - `python backend/manage.py migrate`
+   - `python backend/manage.py runserver 0.0.0.0:8000`
+
+Frontend:
+1) `cd frontend`
+2) `npm install`
+3) `npm run dev` (por configuración, corre en `http://localhost:3000`)
+
+## 8) Troubleshooting (rápido)
+
+- Backend no conecta a Postgres: revisa `POSTGRES_HOST`.
+  - Docker: `dbPostgres`.
+  - Local: `localhost`.
+- Influx responde pero no hay datos/buckets: crea `Energia`, `Acumuladores`, `Sensores` en Influx.
+- Doble ingesta (valores duplicados): suele ser porque arrancaste múltiples procesos con tareas de background.
+  - Solución: en procesos secundarios usa `ENABLE_BACKGROUND_TASKS=false`.
+- SSE se corta detrás de proxy: asegúrate de permitir conexiones persistentes, desactivar buffering y aumentar timeouts.
 
