@@ -9,6 +9,7 @@ Las tareas de fondo se delegan a `api.signals.iniciar_monitoreo_diferido()`.
 from django.apps import AppConfig
 import threading
 import logging
+import os
 logger = logging.getLogger("estado_equipos")
 
 
@@ -29,6 +30,11 @@ class ApiConfig(AppConfig):
         if getattr(self, "_ready_called", False):
             return
         self._ready_called = True
+
+        # En `runserver` Django crea 2 procesos (reloader + proceso real).
+        # Evitamos iniciar threads de background en el proceso de autoreload.
+        if os.environ.get("RUN_MAIN") not in (None, "true"):
+            return
 
         if threading.current_thread() is not threading.main_thread():
             return

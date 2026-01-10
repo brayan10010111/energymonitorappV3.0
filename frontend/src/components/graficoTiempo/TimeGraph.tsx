@@ -1,5 +1,5 @@
 import "./TimeGraph.css";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Line } from "react-chartjs-2";
 import {
   getInfluxData,
@@ -108,12 +108,12 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   useEffect(() => {
     // Selección por defecto para evitar select vacío cuando ya hay catálogos cargados.
     if (variables.length > 0) {
-      if (variablesSeleccionadas == "") {
-        setVariablesSeleccionadas(variables[1].nombre);
+      if (variablesSeleccionadas === "") {
+        setVariablesSeleccionadas(variables[0]?.nombre ?? "");
       }
     }
     if (equipos.length > 0) {
-      if (equipoSeleccionado == "") {
+      if (equipoSeleccionado === "") {
         setEquipoSeleccionado(equipos[0].nombre);
       }
     }
@@ -141,7 +141,12 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
     };
 
     fetchData();
-  }, [equipos, rangoFechas, equipoSeleccionado, variablesSeleccionadas]);
+  }, [equipos, variables, rangoFechas, equipoSeleccionado, variablesSeleccionadas]);
+
+  // Configurar Chart.js una sola vez
+  useEffect(() => {
+    Chart.defaults.devicePixelRatio = window.devicePixelRatio || 1;
+  }, []);
 
   //---------------------------------------------------
   // EFECTO DE SSE PARA DATOS EN TIEMPO REAL-----------------------------
@@ -188,166 +193,178 @@ const TimeGraph: React.FC<TimeGraphProps> = ({ rangoFechas, autorefresh }) => {
   //CONFIGURACION DEL GRAFICO-----------------------------
 
   //DEFINICION DE DATOS Y ESTILOS DEL GRAFICO-----------------------------
-  const data: ChartData<"line"> = {
-    labels: chartLabels,
-    datasets: [
-      {
-        label: equipoSeleccionado,
-        data: dataGraph,
-        borderColor: "rgba(255, 247, 99, 0.7)",
-        backgroundColor: "rgba(255, 247, 99, 0.3)",
-        pointBackgroundColor: "rgba(255, 247, 99, 1)",
+  const maxY = useMemo(() => {
+    const numeric = dataGraph.filter((v) => typeof v === "number") as number[];
+    return numeric.length ? Math.max(...numeric) : 0;
+  }, [dataGraph]);
 
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        borderWidth: 2,
+  const data: ChartData<"line"> = useMemo(
+    () => ({
+      labels: chartLabels,
+      datasets: [
+        {
+          label: equipoSeleccionado,
+          data: dataGraph,
+          borderColor: "rgba(255, 247, 99, 0.7)",
+          backgroundColor: "rgba(255, 247, 99, 0.3)",
+          pointBackgroundColor: "rgba(255, 247, 99, 1)",
 
-        fill: true,
-        tension: 0.4,
-        spanGaps: false,
-        stepped: false,
-      },
-    ],
-  };
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          borderWidth: 2,
+
+          fill: true,
+          tension: 0.4,
+          spanGaps: false,
+          stepped: false,
+        },
+      ],
+    }),
+    [chartLabels, dataGraph, equipoSeleccionado]
+  );
   //DEFINICION DE OPCIONES DEL GRAFICO-----------------------------
-  const options: ChartOptions<"line"> = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: "top" as const,
-        labels: {
-          color: "#ffffff",
+  const options: ChartOptions<"line"> = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "top" as const,
+          labels: {
+            color: "#ffffff",
+          },
         },
-      },
-      title: {
-        display: true,
-        text: "Consumo de energía en el tiempo",
-        font: { family: "Roboto", size: 18 },
-        color: "#ffffffff",
-      },
-      zoom: {
-        pan: { enabled: true, mode: "x" },
-        zoom: {
-          drag: { enabled: true },
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: "x",
-        },
-      },
-    },
-    scales: {
-      x: {
         title: {
           display: true,
-          text: rangoFechas ? "Fecha y Hora" : "Última Hora (minutos)",
+          text: "Consumo de energía en el tiempo",
+          font: { family: "Roboto", size: 18 },
           color: "#ffffffff",
         },
-        ticks: {
-          color: "#d4d4d4ff",
-          font: { family: "Roboto", size: 12 },
+        zoom: {
+          pan: { enabled: true, mode: "x" },
+          zoom: {
+            drag: { enabled: true },
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: "x",
+          },
         },
       },
-      y: {
-        title: { display: true, text: "kWh", color: "#ffffffff" },
-        beginAtZero: true,
-        suggestedMin: 0,
-        suggestedMax: Math.max(...dataGraph),
-
-        ticks: {
-          color: "#d4d4d4ff",
-          font: { family: "Roboto", size: 14 },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: rangoFechas ? "Fecha y Hora" : "Última Hora (minutos)",
+            color: "#ffffffff",
+          },
+          ticks: {
+            color: "#d4d4d4ff",
+            font: { family: "Roboto", size: 12 },
+          },
+        },
+        y: {
+          title: { display: true, text: "kWh", color: "#ffffffff" },
+          beginAtZero: true,
+          suggestedMin: 0,
+          suggestedMax: maxY,
+          ticks: {
+            color: "#d4d4d4ff",
+            font: { family: "Roboto", size: 14 },
+          },
         },
       },
-    },
-  };
+    }),
+    [rangoFechas, maxY]
+  );
   /**
    * Plugin de cursor vertical:
    * - Sigue la posición del mouse en el área del chart.
    * - Activa tooltip en el índice correspondiente.
    * - Dibuja una línea vertical tenue para facilitar lectura.
    */
-  const cursorPlugin: Plugin<"line"> = {
-    id: "cursor",
-    afterEvent: (chart, args) => {
-      const { event } = args;
-      if (event.x === null || event.y === null) {
-        if (chart.cursor) {
-          chart.cursor = undefined;
-          if (chart.tooltip) {
-            chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+  const cursorPlugin: Plugin<"line"> = useMemo(
+    () => ({
+      id: "cursor",
+      afterEvent: (chart, args) => {
+        const { event } = args;
+        if (event.x === null || event.y === null) {
+          if (chart.cursor) {
+            chart.cursor = undefined;
+            if (chart.tooltip) {
+              chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+            }
+            chart.draw();
           }
-          chart.draw();
+          return;
         }
-        return;
-      }
-      const { tooltip } = chart;
-      if (!tooltip) return;
+        const { tooltip } = chart;
+        if (!tooltip) return;
 
-      const {
-        chartArea: { top, bottom, left, right },
-      } = chart;
-      const isMouseInsideChart =
-        event.x >= left &&
-        event.x <= right &&
-        event.y >= top &&
-        event.y <= bottom;
-
-      if (event.type !== "mousemove" || !isMouseInsideChart) {
-        if (chart.cursor) {
-          chart.cursor = undefined;
-          tooltip.setActiveElements([], { x: 0, y: 0 });
-          chart.draw();
-        }
-        return;
-      }
-      const index = chart.scales.x.getValueForPixel(event.x);
-      if (index === undefined) return;
-
-      chart.cursor = { x: event.x };
-      if (
-        tooltip.getActiveElements().length > 0 &&
-        tooltip.getActiveElements()[0].index === index
-      ) {
-        return;
-      }
-
-      const activeElements = chart.data.datasets
-        .map((_, i) => {
-          const meta = chart.getDatasetMeta(i);
-          if (meta.data[index]) {
-            return { datasetIndex: i, index };
-          }
-          return null;
-        })
-        .filter(
-          (el): el is { datasetIndex: number; index: number } => el !== null
-        );
-
-      tooltip.setActiveElements(activeElements, { x: event.x, y: event.y });
-      chart.draw();
-    },
-    afterDraw: (chart) => {
-      if (chart.cursor) {
         const {
-          ctx,
-          chartArea: { top, bottom },
+          chartArea: { top, bottom, left, right },
         } = chart;
-        const x = chart.cursor.x;
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(x, top);
-        ctx.lineTo(x, bottom);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "rgba(241, 241, 241, 0.4)";
-        ctx.stroke();
-        ctx.restore();
-      }
-    },
-  };
-  //---------------------------------------------------
+        const isMouseInsideChart =
+          event.x >= left &&
+          event.x <= right &&
+          event.y >= top &&
+          event.y <= bottom;
 
-  Chart.defaults.devicePixelRatio = window.devicePixelRatio || 1;
+        if (event.type !== "mousemove" || !isMouseInsideChart) {
+          if (chart.cursor) {
+            chart.cursor = undefined;
+            tooltip.setActiveElements([], { x: 0, y: 0 });
+            chart.draw();
+          }
+          return;
+        }
+        const index = chart.scales.x.getValueForPixel(event.x);
+        if (index === undefined) return;
+
+        chart.cursor = { x: event.x };
+        if (
+          tooltip.getActiveElements().length > 0 &&
+          tooltip.getActiveElements()[0].index === index
+        ) {
+          return;
+        }
+
+        const activeElements = chart.data.datasets
+          .map((_, i) => {
+            const meta = chart.getDatasetMeta(i);
+            if (meta.data[index]) {
+              return { datasetIndex: i, index };
+            }
+            return null;
+          })
+          .filter(
+            (el): el is { datasetIndex: number; index: number } => el !== null
+          );
+
+        tooltip.setActiveElements(activeElements, { x: event.x, y: event.y });
+        chart.draw();
+      },
+      afterDraw: (chart) => {
+        if (chart.cursor) {
+          const {
+            ctx,
+            chartArea: { top, bottom },
+          } = chart;
+          const x = chart.cursor.x;
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, bottom);
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(241, 241, 241, 0.4)";
+          ctx.stroke();
+          ctx.restore();
+        }
+      },
+    }),
+    []
+  );
+  //---------------------------------------------------
+  // (devicePixelRatio ya se configura en un efecto)
 
   return (
     <div className="timegraph">

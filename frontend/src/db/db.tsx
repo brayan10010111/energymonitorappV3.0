@@ -9,6 +9,15 @@
  */
 import axios from 'axios';
 
+// Cache simple en memoria para catálogos (evita múltiples llamadas repetidas,
+// especialmente cuando el Dashboard renderiza varios gráficos a la vez).
+let _cacheEquipos: Equipo[] | null = null;
+let _cacheVariables: Variable[] | null = null;
+let _cacheSubcategorias: Subcategoria[] | null = null;
+let _cacheMaquinas: Maquina[] | null = null;
+let _cacheSistemas: Sistema[] | null = null;
+let _cacheSensores: Sensor[] | null = null;
+
 /**
  * Obtiene la URL base del backend desde `VITE_API_URL`.
  *
@@ -231,22 +240,30 @@ export const initSSEConnectionPredictivo = (
 
   source.onmessage = (event) => {
     try {
+      // console.log("SSE recibido:", event.data);
       const payload = JSON.parse(event.data);
 
       if (payload.tipo === "grafico_actualizado") {
-        const nuevosDatos: { timestamp: string; valor: number }[] = payload.contenido;
+        const nuevosDatos = payload.contenido.map((d: any) => ({
+          timestamp: d.timestamp,
+          valor: d.prediccion_kW
+        }));
 
         setDataGraph((prev) => {
-          const updated = [...prev]; // 1440 posiciones
+          const updated = [...prev];
 
-          nuevosDatos.forEach((d) => {
+          nuevosDatos.forEach((d: { timestamp: string; valor: number }) => {
             const t = new Date(d.timestamp);
             const index = t.getHours() * 60 + t.getMinutes();
 
+            // console.log("Index calculado:", index, "Valor:", d.valor);
+
             if (index >= 0 && index < 1440) {
-              updated[index] = d.valor ?? null;
+              updated[index] = d.valor ?? 0;
             }
           });
+
+          // console.log("Primeros 20 valores:", updated.slice(0, 20));
 
           return updated;
         });
@@ -374,6 +391,12 @@ export interface Subcategoria {
   nombre: string;
 }
 
+export interface Sensor {
+  id: number;
+  nombre: string;
+  sistema: number;
+}
+
 export type InformeFormato = "xlsx" | "csv";
 
 export type InformeResult =
@@ -432,11 +455,14 @@ export const fetchInforme = async (params: {
  */
 export const fetchEquipos = async (): Promise<Equipo[]> => {
   const apiUrl = getApiUrl();
+  if (_cacheEquipos) return _cacheEquipos;
   try {
     const response = await axios.get(`${apiUrl}/api/equipos/`);
-    return Array.isArray(response.data)
+    const data = Array.isArray(response.data)
       ? response.data
       : response.data.results || [];
+    _cacheEquipos = data;
+    return data;
   } catch (error) {
     console.error("Error al cargar equipos:", error);
     return [];
@@ -450,11 +476,14 @@ export const fetchEquipos = async (): Promise<Equipo[]> => {
  */
 export const fetchVariables = async (): Promise<Variable[]> => {
   const apiUrl = getApiUrl();
+  if (_cacheVariables) return _cacheVariables;
   try {
     const response = await axios.get(`${apiUrl}/api/variables/`);
-    return Array.isArray(response.data)
+    const data = Array.isArray(response.data)
       ? response.data
       : response.data.results || [];
+    _cacheVariables = data;
+    return data;
   } catch (error) {
     console.error("Error al cargar variables:", error);
     return [];
@@ -468,11 +497,14 @@ export const fetchVariables = async (): Promise<Variable[]> => {
  */
 export const fetchSubcategorias = async (): Promise<Subcategoria[]> => {
   const apiUrl = getApiUrl();
+  if (_cacheSubcategorias) return _cacheSubcategorias;
   try {
     const response = await axios.get(`${apiUrl}/api/subcategorias/`);
-    return Array.isArray(response.data)
+    const data = Array.isArray(response.data)
       ? response.data
       : response.data.results || [];
+    _cacheSubcategorias = data;
+    return data;
   } catch (error) {
     console.error("Error al cargar subcategorias:", error);
     return [];
@@ -486,11 +518,14 @@ export const fetchSubcategorias = async (): Promise<Subcategoria[]> => {
  */
 export const fetchMaquinas = async (): Promise<Maquina[]> => {
   const apiUrl = getApiUrl();
+  if (_cacheMaquinas) return _cacheMaquinas;
   try {
     const response = await axios.get(`${apiUrl}/api/maquinas/`);
-    return Array.isArray(response.data)
+    const data = Array.isArray(response.data)
       ? response.data
       : response.data.results || [];
+    _cacheMaquinas = data;
+    return data;
   } catch (error) {
     console.error("Error al cargar variables:", error);
     return [];
@@ -504,11 +539,14 @@ export const fetchMaquinas = async (): Promise<Maquina[]> => {
  */
 export const fetchSistemas = async (): Promise<Sistema[]> => {
   const apiUrl = getApiUrl();
+  if (_cacheSistemas) return _cacheSistemas;
   try {
     const response = await axios.get(`${apiUrl}/api/sistemas/`);
-    return Array.isArray(response.data)
+    const data = Array.isArray(response.data)
       ? response.data
       : response.data.results || [];
+    _cacheSistemas = data;
+    return data;
   } catch (error) {
     console.error("Error al cargar variables:", error);
     return [];
@@ -516,6 +554,26 @@ export const fetchSistemas = async (): Promise<Sistema[]> => {
 };
 
 
+/**
+ * Lista sistemas desde el backend.
+ *
+ * Soporta respuestas en formato lista plana o paginada (`results`).
+ */
+export const fetchSensores = async (): Promise<Sensor[]> => {
+  const apiUrl = getApiUrl();
+  if (_cacheSensores) return _cacheSensores;
+  try {
+    const response = await axios.get(`${apiUrl}/api/sensores/`);
+    const data = Array.isArray(response.data)
+      ? response.data
+      : response.data.results || [];
+    _cacheSensores = data;
+    return data;
+  } catch (error) {
+    console.error("Error al cargar variables:", error);
+    return [];
+  }
+};
 
 /**
  * Abre una conexión SSE para predicción del total estimado del día.
@@ -539,9 +597,17 @@ export const initSSEConnectionPredictivoTodoElDia = (
       const payload = JSON.parse(event.data);
 
       if (payload.tipo === "grafico_actualizado") {
-        let total = payload.contenido.contenido.total_estimado_kWh;
-        total = total/60/1000;
-        // total es un número, úsalo directamente
+        // El backend normalmente envía: { tipo, contenido: { total_estimado_kWh, ... } }
+        // Mantenemos compatibilidad por si llega anidado.
+        const rawTotal =
+          payload?.contenido?.total_estimado_kWh ??
+          payload?.contenido?.contenido?.total_estimado_kWh;
+
+        if (typeof rawTotal !== "number") return;
+
+        // Normalización legacy: si rawTotal viene en W-min, convertir a kWh.
+        // Si ya está en kWh, este factor debería ajustarse en un solo lugar.
+        const total = rawTotal;
         setEstimado(total);
       }
     } catch (err) {
@@ -601,6 +667,48 @@ export const initSSEConnectionSistemas = (
 
   source.onerror = (err) => {
     console.error("Error SSE:", err);
+  };
+
+  return source;
+};
+
+
+export const initSSEStreamSensores = (
+  sistema: string,
+  setSensorData: React.Dispatch<React.SetStateAction<Record<string, number>>>
+) => {
+  const apiUrl = getApiUrl();
+  const source = new EventSource(
+    `${apiUrl}/api/stream_sensores/?sistema=${encodeURIComponent(sistema)}`
+  );
+
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+
+      if (payload.tipo === "grafico_actualizado") {
+        const lista = payload.contenido;
+
+        // Convertimos el array en un diccionario { nombreSensor: ultimoValor }
+        const nuevosValores: Record<string, number> = {};
+
+        lista.forEach((item: any) => {
+          const nombreSensor = item._measurement; // o item._field si prefieres
+          nuevosValores[nombreSensor] = item._value;
+        });
+
+        setSensorData((prev) => ({
+          ...prev,
+          ...nuevosValores,
+        }));
+      }
+    } catch (err) {
+      console.error("Error SSE stream_sensores:", err);
+    }
+  };
+
+  source.onerror = (err) => {
+    console.error("Error SSE stream_sensores:", err);
   };
 
   return source;

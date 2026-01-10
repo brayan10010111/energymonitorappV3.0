@@ -12,7 +12,7 @@ import {
 import { Line } from "react-chartjs-2";
 // Importaciones de TIPOS
 import type { ChartOptions, Plugin, ChartData } from "chart.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAcumulados,
   initSSEConnectionPredictivo,
@@ -35,6 +35,13 @@ declare module "chart.js" {
     cursor?: { x: number };
   }
 }
+
+// Labels fijos del día (1440) — se calculan una sola vez.
+const DAY_LABELS = Array.from({ length: 1440 }, (_, i) => {
+  const h = Math.floor(i / 60).toString().padStart(2, "0");
+  const m = (i % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+});
 
 /**
  * Props del gráfico predictivo.
@@ -59,14 +66,9 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
   const [dataGraphPredicciones, setDataGraphPredicciones] = useState<number[]>(Array(1440).fill(null));
   const [dataGraphReal, setDataGraphReal] = useState<number[]>(Array(1440).fill(null));
 
-  // Labels fijos del día
-  const chartLabels = Array.from({ length: 1440 }, (_, i) => {
-    const h = Math.floor(i / 60).toString().padStart(2, "0");
-    const m = (i % 60).toString().padStart(2, "0");
-    return `${h}:${m}`;
-  });
-
-  const sourceRef = useRef<EventSource | null>(null);
+  // SSE: dos conexiones distintas (real vs predicción). No reutilizar el mismo ref.
+  const predSourceRef = useRef<EventSource | null>(null);
+  const realSourceRef = useRef<EventSource | null>(null);
 
   // Cargar datos reales del día
   useEffect(() => {
@@ -112,23 +114,23 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
       setDataGraphPredicciones
     );
 
-    sourceRef.current = source;
+    // Cerrar conexión previa si existía
+    predSourceRef.current?.close();
+    predSourceRef.current = source;
 
     return () => {
-      if (sourceRef.current) {
-        sourceRef.current.close();
-        sourceRef.current = null;
-        // console.log("Conexión SSE cerrada.");
-      }
+      predSourceRef.current?.close();
+      predSourceRef.current = null;
     };
-  }, [sistema, estimar]);
+  }, [sistema]);
 
   // Cerrar SSE si estimar cambia a false
   useEffect(() => {
-    if (!estimar && sourceRef.current) {
-      // console.log("Predicción detenida, cerrando SSE.");
-      sourceRef.current.close();
-      sourceRef.current = null;
+    if (!estimar) {
+      predSourceRef.current?.close();
+      predSourceRef.current = null;
+      realSourceRef.current?.close();
+      realSourceRef.current = null;
     }
   }, [estimar]);
 
@@ -142,33 +144,30 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
         sistema,
         setDataGraphReal
       );
-      sourceRef.current = source;
+      realSourceRef.current?.close();
+      realSourceRef.current = source;
   
       return () => {
-        if (sourceRef.current) {
-          sourceRef.current.close();
-          sourceRef.current = null;
-          // console.log("Conexión SSE cerrada.");
-        }
+        realSourceRef.current?.close();
+        realSourceRef.current = null;
       };
     }, [sistema, estimar]);
   
     // Maneja el cierre si autorefresh cambia a false
-    useEffect(() => {
-      if (!estimar && sourceRef.current) {
-        // console.log("Predicción detenida, cerrando SSE.");
-        sourceRef.current.close();
-        sourceRef.current = null;
-      }
-    }, [estimar]);
+    // (cierre ya manejado en el efecto anterior)
 
+  const maxReal = useMemo(() => {
+    const numeric = dataGraphReal.filter((v) => typeof v === "number") as number[];
+    return numeric.length ? Math.max(...numeric) : 0;
+  }, [dataGraphReal]);
 
-  const data: ChartData<"line"> = {
-    labels: chartLabels,
-    datasets: [
-      {
-        label: "Consumo Real",
-        data: dataGraphReal,
+  const data: ChartData<"line"> = useMemo(
+    () => ({
+      labels: DAY_LABELS,
+      datasets: [
+        {
+          label: "Consumo Real",
+          data: dataGraphReal,
         borderColor: "rgba(255, 247, 99, 0.7)",
         backgroundColor: "rgba(255, 247, 99, 0.3)",
         pointBackgroundColor: "rgba(255, 247, 99, 1)",
@@ -178,10 +177,10 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
         fill: true,
         tension: 0.2,
         spanGaps: false,
-      },
-      {
-        label: "Consumo Estimado",
-        data: dataGraphPredicciones,
+        },
+        {
+          label: "Consumo Estimado",
+          data: dataGraphPredicciones,
         borderColor: "rgba(99, 112, 255, 0.7)",
         backgroundColor: "rgba(133, 99, 255, 0.3)",
         pointBackgroundColor: "rgba(99, 130, 255, 1)",
@@ -191,9 +190,11 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
         fill: true,
         tension: 0.2,
         spanGaps: false,
-      },
-    ],
-  };
+        },
+      ],
+    }),
+    [dataGraphReal, dataGraphPredicciones]
+  );
 
   const ahora = new Date();
   const minutoActual = ahora.getHours() * 60 + ahora.getMinutes(); // índice actual
@@ -211,6 +212,20 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
         text: "Grafico en tiempo real",
         font: { family: "Roboto", size: 18 },
         color: "#ffffffff",
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const label = context.dataset.label || "";
+            const value = context.raw;
+
+            if (value === null || value === undefined) {
+              return `${label}: sin dato`;
+            }
+
+            return `${label}: ${value} kWh`;
+          },
+        },
       },
       zoom: {
         pan: { enabled: true, mode: "x" },
@@ -237,7 +252,7 @@ const GraficoPredictivo: React.FC<GraficoPredictivoProps> = ({ estimar, sistema 
         title: { display: true, text: "kWh", color: "#ffffffff" },
         beginAtZero: true,
         suggestedMin: 0,
-        suggestedMax: Math.max(...dataGraphReal),
+        suggestedMax: maxReal,
         ticks: {
           color: "#d4d4d4ff",
           font: { family: "Roboto", size: 12 },

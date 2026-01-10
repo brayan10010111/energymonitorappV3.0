@@ -12,6 +12,14 @@ Se usa desde endpoints SSE en `api.views`.
 from api.influx_tools import get_equipos_aire_comprimido_online, get_influx_data_for_air_compressor_prediction, get_influx_data_for_air_compressor_prediction_all_day, sumar_acumulador_calculo_total 
 import logging
 logger = logging.getLogger("estado_equipos")
+
+import time
+import threading
+
+_pred_cache_lock = threading.Lock()
+_pred_cache_value = None
+_pred_cache_ts = 0.0
+_pred_cache_ttl_s = 10.0
 async def get_datos_para_prediccion():
     """
     Obtiene datos de InfluxDB necesarios para la predicción del consumo del compresor de aire.
@@ -92,9 +100,6 @@ async def preparar_datos_para_modelo(datos):
     datos_energia, datos_sensores = datos
     df_energia = pd.DataFrame(datos_energia)
     df_sensores = pd.DataFrame(datos_sensores)
-    print("DATAFRAMES")
-    print(df_sensores.shape)
-    print(df_energia.shape)
     if df_energia.empty     or df_sensores.empty:
         logger.warning("No hay datos suficientes para preparar el modelo")
         return None
@@ -145,12 +150,9 @@ async def preparar_datos_para_modelo(datos):
     df_presion = df_presion.fillna(0)
     df_consumo_1min = df_consumo.set_index('timestamp').resample('1min').mean()
     df_trabajo = df_flujo.join(df_presion, how='inner').join(df_consumo_1min, how='inner')
-    print("ANTES DE DROPNA FINAL:", df_trabajo.shape)
     df_trabajo = df_trabajo.dropna()
-    print("DESPUÉS DE DROPNA FINAL:", df_trabajo.shape)
 
     df_trabajo = crear_features_para_modelo(df_trabajo)
-    print("DESPUÉS DE crear_features_para_modelo:", df_trabajo.shape)
     
     return df_trabajo
 
@@ -225,47 +227,50 @@ def predecir_consumo_compresor(df_trabajo):
 
 import asyncio
 async def prediccion_en_tiempo_real(intervalo=10):
+    """Genera una predicción *una vez* (para usar desde SSE).
+
+    Nota: este endpoint se llama potencialmente por múltiples clientes SSE.
+    Para evitar picos de CPU, se cachea el resultado por unos segundos.
+    El parámetro `intervalo` se conserva por compatibilidad.
     """
-    Cada minuto:
-    - Obtiene últimos 30 minutos reales
-    - Prepara features
-    - Predice los próximos 30 minutos
-    - Guarda o envía las predicciones
-    """
-    from datetime import datetime
+    global _pred_cache_value, _pred_cache_ts
+
+    from django.utils import timezone
     from api.model_loader import modelo_aire, scaler_aire
 
-    while True:
-        try:
-            # 1. Obtener últimos 30 minutos reales
-            datos = await get_datos_para_prediccion()
+    # Cache (evita recalcular pandas+modelo para cada conexión SSE)
+    now = time.monotonic()
+    with _pred_cache_lock:
+        if _pred_cache_value is not None and (now - _pred_cache_ts) < _pred_cache_ttl_s:
+            return _pred_cache_value
 
-            # 2. Preparar features
-            df_trabajo = await preparar_datos_para_modelo(datos)
-            if df_trabajo is None or df_trabajo.empty:
-                logger.warning("No hay datos suficientes para predecir")
-                await asyncio.sleep(intervalo)
-                continue
+    try:
+        datos = await get_datos_para_prediccion()
+        df_trabajo = await preparar_datos_para_modelo(datos)
+        if df_trabajo is None or getattr(df_trabajo, "empty", False):
+            logger.warning("No hay datos suficientes para predecir")
+            return []
 
-            # 3. Predecir los próximos 30 minutos
-            predicciones, _ = predecir_minutos_futuros(
-                df_trabajo=df_trabajo,
-                modelo=modelo_aire,
-                scaler=scaler_aire,
-                minutos=30
-            )
-            print(f"predicciones {predicciones}")
-            # 4. Registrar o enviar la predicción
-            logger.info(f"Predicción generada a las {datetime.utcnow()}: {predicciones}")
+        predicciones, _ = predecir_minutos_futuros(
+            df_trabajo=df_trabajo,
+            modelo=modelo_aire,
+            scaler=scaler_aire,
+            minutos=30
+        )
 
-            # 5. Esperar al siguiente minuto
-            await asyncio.sleep(intervalo)
+        logger.info(
+            "Predicción generada a las %s (%s puntos)",
+            timezone.localtime(timezone.now()).isoformat(),
+            len(predicciones),
+        )
+        with _pred_cache_lock:
+            _pred_cache_value = predicciones
+            _pred_cache_ts = now
+        return predicciones
 
-            return predicciones
-
-        except Exception as e:
-            logger.error(f"Error en predicción en tiempo real: {e}", exc_info=True)
-            await asyncio.sleep(intervalo)
+    except Exception as e:
+        logger.error("Error en predicción en tiempo real: %s", e, exc_info=True)
+        return []
 
 
 
@@ -275,10 +280,10 @@ def predecir_consumo_restante_del_dia(df_trabajo, modelo, scaler):
     Predice el consumo desde la hora actual hasta las 23:59.
     """
 
-    from datetime import datetime
+    from django.utils import timezone
 
     # 1. Calcular minutos restantes del día
-    ahora = datetime.now()
+    ahora = timezone.localtime(timezone.now())
     fin_dia = ahora.replace(hour=23, minute=59, second=59, microsecond=0)
     minutos_faltantes = max(int((fin_dia - ahora).total_seconds() // 60), 0)
 
@@ -297,17 +302,16 @@ def predecir_consumo_restante_del_dia(df_trabajo, modelo, scaler):
     return predicciones, df_pred
 
 def calcular_consumo_total_dia(consumo_real_minuto, predicciones):
-    """Calcula kWh reales, predichos y total estimado para el día.
+    # Real: Wh → kWh
+    real_kW = (sum(consumo_real_minuto)/60) / 1000
 
-    Nota: asume que `consumo_real_minuto` está en kW por minuto.
-    Convierte a kWh dividiendo por 60.
-    """
-    real_kWh = sum(consumo_real_minuto) / 60
-    pred_kWh = sum(p["prediccion_kW"] for p in predicciones) / 60
+    # Predicción: kW → kWh
+    pred_kW = sum(p["prediccion_kW"] for p in predicciones) / 60
+
     return {
-        "real_kWh": real_kWh,
-        "pred_kWh": pred_kWh,
-        "total_estimado_kWh": real_kWh + pred_kWh
+        "real_kWh": real_kW,
+        "pred_kWh": pred_kW,
+        "total_estimado_kWh": (real_kW + pred_kW)/1000.0
     }
 
 

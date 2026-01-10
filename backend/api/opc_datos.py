@@ -301,38 +301,45 @@ from requests.exceptions import ReadTimeout, ConnectTimeout, ConnectionError
 
 
 def obtener_variables(max_retries=3, delay=2):
-    """Consulta al backend el catálogo de sensores y lo normaliza a dict {nombre: nodo}.
-       Incluye reintentos y manejo robusto de errores.
-    """
-    url = env("POSTGRES_URL") + "sensores/"
+    """Obtiene el catálogo de sensores y lo normaliza a dict {nombre: nodo}.
 
+    IMPORTANTE: antes hacía `requests.get` hacia el mismo backend (auto-llamada),
+    lo que puede saturar workers y congelar consultas. Preferimos ORM; dejamos
+    fallback HTTP por compatibilidad.
+    """
+
+    # 1) ORM (preferido)
+    try:
+        from api.models import Sensor
+        data = list(Sensor.objects.all().values("nombre", "nodo_opcua"))
+        return {item["nombre"]: item["nodo_opcua"] for item in data}
+    except Exception as e:
+        logger.warning("No se pudo obtener sensores por ORM; usando fallback HTTP: %s", e)
+
+    # 2) Fallback HTTP con reintentos
+    url = env("POSTGRES_URL") + "sensores/"
     for intento in range(1, max_retries + 1):
         try:
-            response = requests.get(
-                url,
-                timeout=(3, 10)  # (connect_timeout, read_timeout)
-            )
+            response = requests.get(url, timeout=(3, 10))  # (connect_timeout, read_timeout)
 
             if response.status_code == 200:
                 data = response.json()
                 return {item["nombre"]: item["nodo_opcua"] for item in data}
 
-            logger.error("Respuesta inesperada del backend: %s", response.status_code)
+            logger.error("Respuesta inesperada del backend sensores: %s", response.status_code)
             return None
 
         except (ReadTimeout, ConnectTimeout):
-            logger.warning(f"Timeout al consultar {url}. Reintento {intento}/{max_retries}...")
-        
+            logger.warning("Timeout al consultar %s. Reintento %s/%s...", url, intento, max_retries)
         except ConnectionError:
-            logger.error(f"No se pudo conectar con el backend en {url}. Reintento {intento}/{max_retries}...")
-
+            logger.error("No se pudo conectar con el backend en %s. Reintento %s/%s...", url, intento, max_retries)
         except Exception as e:
-            logger.error("Excepción inesperada al obtener variables:", exc_info=e)
+            logger.error("Excepción inesperada al obtener sensores (HTTP): %s", e, exc_info=True)
             return None
 
         time.sleep(delay)
 
-    logger.error("No fue posible obtener variables después de varios intentos.")
+    logger.error("No fue posible obtener sensores después de varios intentos.")
     return None
 
 
@@ -350,6 +357,10 @@ def start_opc_async():
     # - En runserver, RUN_MAIN=="true" es el proceso real.
     if os.environ.get("RUN_MAIN") not in (None, "true"):
         logger.info("Saltando start_opc_async() en proceso de autoreload")
+        return
+
+    if os.environ.get("ENABLE_BACKGROUND_TASKS", "true").lower() not in ("1", "true", "yes", "on"):
+        logger.info("ENABLE_BACKGROUND_TASKS desactivado; no se inicia OPC en segundo plano")
         return
 
     global _opc_started

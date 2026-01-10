@@ -16,6 +16,9 @@ Se usa desde:
 
 from api.influx_config import get_influx_client
 from django.conf import settings
+from django.utils import timezone as dj_timezone
+from zoneinfo import ZoneInfo
+import datetime as dt
 import csv
 from django.http import HttpResponse, JsonResponse
 import logging
@@ -115,14 +118,11 @@ def registrar_acumulador(
         "measurement": sistema, 
         "fields": clean_fields,
         "time": timestamp,
-        # "tags": {
-        #     "equipo": nombre_equipo  # Tag para identificar el equipo dentro del sistema
-        # }
     }
 
     # Agregar tags adicionales si existen
     if tags:
-        punto["tags"].update(tags)
+        punto["tags"] = dict(tags)
 
     write_api.write(bucket=bucket, record=punto)
 
@@ -258,13 +258,13 @@ def consultar_influx_last_hour_initial(request):
     """
     try:
         medidor = request.GET.get("medidor") 
-        variable =  request.Get.get("variable")
+        variable = request.GET.get("variable")
         client = get_influx_client()
         query = f'''
         from(bucket: "Energia")
         |> range(start: -1h, stop: now())
         |> filter(fn: (r) => r._measurement == "{medidor}")
-        |> filter(fn: (r) => r._field == "{variable})
+        |> filter(fn: (r) => r._field == "{variable}")
         |> keep(columns: ["_time", "_value"])
         '''
         result = client.query_api().query(query)
@@ -346,7 +346,7 @@ def crear_informe(request):
         if not result or all(len(table.records) == 0 for table in result):
             return JsonResponse({"error": "No hay datos en el rango seleccionado"}, status=404)
 
-        fecha = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fecha = dj_timezone.localtime(dj_timezone.now()).strftime("%Y%m%d_%H%M%S")
 
         # Generar CSV
         if formato == "csv":
@@ -359,7 +359,7 @@ def crear_informe(request):
             for table in result:
                 for record in table.records:
                     writer.writerow([
-                        record.get_time().isoformat(),
+                        record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                         record.get_measurement(),
                         record.get_field(),
                         record.get_value() if record.get_value() is not None else 0
@@ -379,7 +379,7 @@ def crear_informe(request):
             for table in result:
                 for record in table.records:
                     ws.append([
-                        record.get_time().isoformat(),
+                        record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                         record.get_measurement(),
                         record.get_field(),
                         record.get_value() if record.get_value() is not None else 0
@@ -420,7 +420,7 @@ def get_influx_data_last_10s_async(medidor, variable):
     for table in tables:
         for record in table.records:
             datos.append({
-                "timestamp": record.get_time().isoformat(),
+                "timestamp": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                 "valor": record.get_value() or 0
             })
     return datos
@@ -492,7 +492,7 @@ async def get_influx_data_for_air_compressor_prediction():
     for table in tables_energia:
         for record in table.records:
             datos_energia.append({
-                "_time": record.get_time().isoformat(),
+                "_time": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                 "_value": record.get_value() or 0,
                 "_measurement": record.get_measurement(),
                 "_field": record.get_field()
@@ -514,7 +514,7 @@ async def get_influx_data_for_air_compressor_prediction():
     for table in tables_sensores:
         for record in table.records:
             datos_sensores.append({
-                "_time": record.get_time().isoformat(),
+                "_time": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                 "_value": record.get_value() or 0,
                 "_measurement": record.get_measurement(),
                 "_field": record.get_field()
@@ -541,7 +541,7 @@ class EnergyMeterAccumulator:
         self.consumo_hora = 0
 
     def process(self, dato: float) -> dict:
-        ahora = datetime.now()
+        ahora = datetime.now(ZoneInfo("America/Bogota"))
         now_min = ahora.minute
         now_hour = ahora.hour
 
@@ -615,7 +615,7 @@ def sumar_acumulador(request):
         for table in result:
             for record in table.records:
                 datos.append({
-                    "time": record.get_time().isoformat(),
+                    "time": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                     "value": record.get_value()
                 })
 
@@ -632,9 +632,14 @@ def sumar_acumulador_calculo_total(sistema:str):
     try:
         sistema = sistema
 
-        now = datetime.utcnow()
-        inicio = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
-        fin = now.isoformat() + "Z"
+        # "Día actual" basado en Colombia, pero consultando Influx en UTC (RFC3339)
+        now_local = dj_timezone.localtime(dj_timezone.now())
+        start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        now_utc = now_local.astimezone(dt.timezone.utc)
+        start_utc = start_local.astimezone(dt.timezone.utc)
+
+        inicio = start_utc.isoformat().replace("+00:00", "Z")
+        fin = now_utc.isoformat().replace("+00:00", "Z")
         client = get_influx_client()
 
         query = f'''
@@ -675,9 +680,15 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
         client = get_influx_client()
         query_api = client.query_api()
         sistema = "AIRE COMPRIMIDO"
-        now = datetime.utcnow()
-        inicio = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
-        fin = now.isoformat() + "Z"
+
+        # Ventana del día en Colombia, convertida a UTC para Influx
+        now_local = dj_timezone.localtime(dj_timezone.now())
+        start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        now_utc = now_local.astimezone(dt.timezone.utc)
+        start_utc = start_local.astimezone(dt.timezone.utc)
+
+        inicio = start_utc.isoformat().replace("+00:00", "Z")
+        fin = now_utc.isoformat().replace("+00:00", "Z")
         sensores_aire_comprimido = await get_sensores_aire_comprimido()
 
 
@@ -697,7 +708,7 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
         for table in tables_energia:
             for record in table.records:
                 datos_energia.append({
-                    "_time": record.get_time().isoformat(),
+                    "_time": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                     "_value": record.get_value() or 0,
                     "_measurement": record.get_measurement(),
                     "_field": record.get_field()
@@ -716,7 +727,7 @@ async def get_influx_data_for_air_compressor_prediction_all_day():
         for table in tables_sensores:
             for record in table.records:
                 datos_sensores.append({
-                    "_time": record.get_time().isoformat(),
+                    "_time": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
                     "_value": record.get_value() or 0,
                     "_measurement": record.get_measurement(),
                     "_field": record.get_field()
@@ -753,7 +764,7 @@ def get_influx_data_last_10s_for_sistems_async(sistema: str):
     for table in tables:
         for record in table.records:
             valores.append(record.get_value() or 0)
-            timestamp = record.get_time().isoformat()
+            timestamp = record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat()
 
     total_kW = sum(valores)
 
@@ -761,5 +772,47 @@ def get_influx_data_last_10s_for_sistems_async(sistema: str):
         "timestamp": timestamp,
         "valor": total_kW
     }
-    print("Dato total:", dato_total)
+    #print("Dato total:", dato_total)
     return dato_total
+
+
+
+
+
+
+
+
+
+
+async def obtener_sensores_en_tiempo_real(sistema: str):
+    try:
+        client = get_influx_client()
+        query_api = client.query_api()
+        if sistema != "AIRE COMPRIMIDO":
+            return {}
+        sensores_aire_comprimido = await get_sensores_aire_comprimido()
+        sensores_list = ", ".join([f'"{nombre[0]}"' for nombre in sensores_aire_comprimido])
+        flux_query = f'''
+                    from(bucket: "Sensores")
+                    |> range(start: -60s, stop: now())
+                    |> filter(fn: (r) => contains(value: r._measurement, set: [{sensores_list}]))
+                    |> yield(name: "last")
+                '''
+
+        tables_sensores = query_api.query(flux_query)
+
+        datos_sensores = []
+        for table in tables_sensores:
+            for record in table.records:
+                datos_sensores.append({
+                    "_time": record.get_time().astimezone(ZoneInfo("America/Bogota")).isoformat(),
+                    "_value": record.get_value() or 0,
+                    "_measurement": record.get_measurement(),
+                    "_field": record.get_field()
+                })
+
+        return datos_sensores
+
+    except Exception as e:
+        logger.error("Error no se pudo obtener sensores en tiempo real:", e)
+        return []

@@ -11,6 +11,7 @@ La lista de variables se obtiene desde la API (`/variables/`) usando `POSTGRES_U
 
 import time
 import threading
+import os
 
 import struct
 from datetime import datetime
@@ -39,6 +40,9 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 INTERVALO_MODBUS_SEGUNDOS = env.int("INTERVALO_MODBUS_SEGUNDOS", default=5)
+
+_modbus_start_lock = threading.Lock()
+_modbus_started = False
 
 # Persistencia de acumuladores por equipo.
 # Importante: NO debe estar dentro de registrar_medicion_safe(), o se reinicia cada ciclo.
@@ -251,20 +255,30 @@ async def ciclo_modbus_async_all(variables=None):
 
 
 def obtener_variables():
-    """Obtiene el catálogo de variables desde el backend (endpoint `/variables/`)."""
-    url = env("POSTGRES_URL") + "variables/"
-    response = requests.get(url)
-    try:
-        # Verificar que la petición fue exitosa
-        if response.status_code == 200:
-            data = response.json()   # Aquí tienes el JSON como dict/list en Python
-            return data
-        else:
-            return None
-    except Exception as e:
-        logger.error("Excepción al obtener variables:", exc_info=e)
-        logger.error("Error en respuesta HTTP: %s", response.status_code)
+    """Obtiene el catálogo de variables.
 
+    IMPORTANTE: antes hacía un `requests.get` hacia el mismo backend, lo cual puede
+    bloquear el servidor (auto-llamada) y generar picos de CPU/colas de requests.
+    Preferimos el ORM; dejamos fallback HTTP por compatibilidad.
+    """
+    # 1) ORM (rápido, sin red)
+    try:
+        from api.models import Variable
+        data = list(Variable.objects.all().values("nombre", "registro", "tipo"))
+        return data
+    except Exception as e:
+        logger.warning("No se pudo obtener variables por ORM; usando fallback HTTP: %s", e)
+
+    # 2) Fallback HTTP
+    try:
+        url = env("POSTGRES_URL") + "variables/"
+        response = requests.get(url, timeout=(3, 10))
+        if response.status_code == 200:
+            return response.json()
+        logger.error("Error en respuesta HTTP variables: %s", response.status_code)
+        return None
+    except Exception as e:
+        logger.error("Excepción al obtener variables (HTTP): %s", e, exc_info=True)
         return None
 
 
@@ -291,6 +305,22 @@ def start_modbus_async():
     - Un hilo refresca el catálogo de variables cada 60s.
     - Otro hilo corre el loop Modbus (asyncio) con el catálogo actual.
     """
+    # Evitar doble arranque por autoreload de Django (runserver) o imports repetidos
+    if os.environ.get("RUN_MAIN") not in (None, "true"):
+        logger.info("Saltando start_modbus_async() en proceso de autoreload")
+        return
+
+    if os.environ.get("ENABLE_BACKGROUND_TASKS", "true").lower() not in ("1", "true", "yes", "on"):
+        logger.info("ENABLE_BACKGROUND_TASKS desactivado; no se inicia Modbus en segundo plano")
+        return
+
+    global _modbus_started
+    with _modbus_start_lock:
+        if _modbus_started:
+            logger.info("start_modbus_async() ya fue ejecutado; no se crean más hilos")
+            return
+        _modbus_started = True
+
     shared = {"variables": None}   #  contenedor compartido
 
     def run_variables():
@@ -302,11 +332,15 @@ def start_modbus_async():
     def run_modbus():
         while True:
             vars_actuales = shared["variables"]
-            if vars_actuales is not None:
-                asyncio.run(modbus_async_forever(intervalo=INTERVALO_MODBUS_SEGUNDOS, variables=vars_actuales))
-            else:
+            if vars_actuales is None:
                 logger.warning("Variables aún no disponibles")
                 time.sleep(5)
+                continue
+
+            # `modbus_async_forever` es un loop infinito. Si llega a retornar,
+            # reiniciamos luego de una espera corta.
+            asyncio.run(modbus_async_forever(intervalo=INTERVALO_MODBUS_SEGUNDOS, variables=vars_actuales))
+            time.sleep(2)
 
     # Lanzar hilo para Modbus
     threading.Thread(target=run_modbus, name="Modbus-Async", daemon=True).start()

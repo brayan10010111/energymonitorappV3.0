@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import "./Predictivo.css";
 import GraficoPredictivo from "../../components/graficoPredictivo/graficoPredictivo";
 import { fetchSistemas,  initSSEConnectionPredictivoTodoElDia,  type Sistema } from "../../db/db";
+import SensoresDashboard from "../../components/Sensores/Sensores";
 
 /**
  * Vista de predicción.
@@ -38,25 +39,20 @@ const Predictivo: React.FC = () => {
 
   const sourceRef = useRef<EventSource | null>(null);
   useEffect(() => {
-      if (!sistemaSeleccionado || !estimar) return;
-  
-      // console.log("Iniciando SSE para:", sistemaSeleccionado);
-  
-      const source = initSSEConnectionPredictivoTodoElDia(
-        sistemaSeleccionado,
-        setEstimado
-      );
-      // +console.log("IsetEstimado:", estimado);
-      sourceRef.current = source;
-  
-      return () => {
-        if (sourceRef.current) {
-          sourceRef.current.close();
-          sourceRef.current = null;
-          // console.log("Conexión SSE cerrada.");
-        }
-      };
-    }, [sistemaSeleccionado, estimar]);
+  if (!sistemaSeleccionado) return;
+
+  const source = initSSEConnectionPredictivoTodoElDia(
+    sistemaSeleccionado,
+    setEstimado
+  );
+
+  sourceRef.current = source;
+
+  return () => {
+    sourceRef.current?.close();
+    sourceRef.current = null;
+  };
+}, [sistemaSeleccionado]);
 
   return (
     <div className="energy-page">
@@ -91,11 +87,15 @@ const Predictivo: React.FC = () => {
 
         {estimar && (
           <div className="resultado-predictivo">
-            <strong>Consumo de Energía Estimado:</strong> {estimado && (estimado+ " kWh") || "Faltan Datos"} 
+            <strong>Consumo de Energía Estimado del dia: </strong>
+              {estimado !== null && estimado !== undefined
+                ? `${estimado.toFixed(2)} kW`
+                : "Faltan Datos"} 
             <GraficoPredictivo
               estimar={estimar}
               sistema={sistemaSeleccionado}
             />
+            <SensoresDashboard sistema={sistemaSeleccionado} />
           </div>
         )}
       </div>

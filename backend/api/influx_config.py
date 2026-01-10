@@ -6,27 +6,50 @@ Centraliza la construcción del `InfluxDBClient` leyendo variables del `.env`:
 - `INFLUX_ORG`
 """
 
-import os
 from influxdb_client import InfluxDBClient
 
 import environ
 
+_env = environ.Env()
+environ.Env.read_env()
+
+_client: InfluxDBClient | None = None
 
 
+def get_influx_client() -> InfluxDBClient:
+    """Devuelve un cliente InfluxDB singleton.
 
-def get_influx_client():
-    """Crea un cliente de InfluxDB usando variables de entorno.
-
-    Raises:
-        ValueError: si falta alguna variable requerida.
+    Evita crear un nuevo `InfluxDBClient` por request/consulta (costoso y puede
+    degradar el rendimiento cuando hay SSE + loops en background).
     """
-    env = environ.Env()
-    environ.Env.read_env()
-    url = env("INFLUX_URL")
-    token = env("INFLUX_TOKEN")
-    org = env("INFLUX_ORG")
+    global _client
+    if _client is not None:
+        return _client
+
+    url = _env("INFLUX_URL")
+    token = _env("INFLUX_TOKEN")
+    org = _env("INFLUX_ORG")
+    timeout_ms = _env.int("INFLUX_TIMEOUT_MS", default=10_000)
 
     if not all([url, token, org]):
         raise ValueError("Faltan variables de entorno para conectar a InfluxDB.")
 
-    return InfluxDBClient(url=url, token=token, org=org)
+    _client = InfluxDBClient(
+        url=url,
+        token=token,
+        org=org,
+        timeout=timeout_ms,
+        enable_gzip=True,
+    )
+    return _client
+
+
+def close_influx_client() -> None:
+    """Cierra el cliente singleton (si existe)."""
+    global _client
+    if _client is None:
+        return
+    try:
+        _client.close()
+    finally:
+        _client = None
