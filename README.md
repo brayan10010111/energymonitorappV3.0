@@ -1,6 +1,16 @@
 # EnergyMonitorApp V3.0 — Documentación
+## Presentación
+Este proyecto fue desarrollado por Brayan Rueda Mayorga, Ingeniero Mecatrónico.
 
-## 1) Descripción general
+En el desarrollo del programa de especialización en Ciencia de Datos de la Universidad Nacional Abierta y a Distancia.
+
+## Esquema de funcionamiento del Sistema
+<img width="516" height="517" alt="image" src="https://github.com/user-attachments/assets/2c80d77f-7e08-4376-a6e4-67a2500ecc73" />
+
+## 1) Resumen
+Este desarrollo propone una interfaz adaptable y sencilla, capaz de gestionar datos energéticos en tiempo real y de predecir consumos con base a valores de producción. Con ello se busca ofrecer una alternativa más flexible y eficiente frente a las soluciones tradicionales, contribuyendo a la optimización de recursos y a la sostenibilidad industrial.
+
+## 2) Descripción general
 Aplicación web para monitoreo y analítica de consumo de energía.
 
 - **Frontend**: React + Vite (carpeta `frontend/`).
@@ -11,7 +21,7 @@ Aplicación web para monitoreo y analítica de consumo de energía.
   - **Modbus TCP**: lectura asíncrona de equipos (medidores) y escritura a Influx.
   - **OPC UA**: lectura asíncrona de sensores y escritura a Influx.
 
-## 2) Arquitectura (alto nivel)
+## 3) Arquitectura (alto nivel)
 
 ### Flujo de datos (ingesta)
 1. El backend obtiene catálogos desde su propia API:
@@ -32,7 +42,7 @@ Aplicación web para monitoreo y analítica de consumo de energía.
   - Consultas a Influx (histórico, acumulados, informes).
 - Para tiempo real, el frontend abre conexiones SSE a endpoints del backend.
 
-## 3) Variables de entorno relevantes
+## 4) Variables de entorno relevantes
 
 ### Frontend (Vite)
 - `VITE_API_URL`: URL base del backend (por defecto `http://localhost:8000`).
@@ -49,7 +59,7 @@ Aplicación web para monitoreo y analítica de consumo de energía.
 - `POSTGRES_URL`: en este proyecto se usa como **URL base del backend** para que los hilos de Modbus/OPC consulten `variables/` y `sensores/` vía HTTP.
   - Ejemplo esperado: `http://localhost:8000/api/`
 
-## 4) Backend (Django)
+## 5) Backend (Django)
 
 ### Estructura
 - `backend/core/`
@@ -98,7 +108,7 @@ Influx / reportes:
   - OPC (`backend/api/opc_datos.py`)
   - Keepalive (`backend/api/keepalive.py`)
 
-## 5) Frontend (React)
+## 6) Frontend (React)
 
 ### API client (frontend/src/db/db.tsx)
 - Resuelve URL base con `VITE_API_URL`.
